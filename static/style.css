@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Mulish:ital,wght@0,200..1000;1,200..1000&display=swap');
+
 * {
   margin: 0;
   padding: 0;
@@ -5,8 +7,8 @@
 }
 
 body {
-  background-color: #000;
-  font-family: Arial, sans-serif;
+  background-color: #0D0D0D;
+  font-family: "Mulish", sans-serif;
   color: #fff;
   padding-top: 80px; /* so content isn't hidden under navbar */
   text-align: center;
@@ -16,7 +18,7 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background-color: #000;
+  background-color: #0D0D0D;
   padding: 10px 20px;
   position: fixed;
   top: 0;
@@ -47,8 +49,12 @@ body {
   transition: background-color 0.3s ease, color 0.3s ease;
 }
 
+.nav-right a.active {
+  color: #4CBB17;
+}
+
 .nav-right a:hover {
-  background-color: #4CAF50;
+  background-color: #4CBB17;
   color: white;
 }
 
@@ -69,7 +75,7 @@ body {
 
 h2 {
   font-size: clamp(36px, 6vw, 72px);
-  background-image: linear-gradient(to right, #e8e2e2 52%, #49a23b 48%);
+  background-image: linear-gradient(to right, #e8e2e2 52%, #4CBB17 48%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   margin: 100px auto 20px;
@@ -91,31 +97,34 @@ h3 {
 }
 
 .custom-upload {
-  display: inline-block;
-  padding: 10px 20px;
-  background-color: #4CAF50;
+  padding: 8px 20px;
+  background-color: #4CBB17;
   color: white;
   border-radius: 8px;
   cursor: pointer;
+  font-family: "Mulish", sans-serif;
   font-size: 16px;
-  font-weight: 500;
   transition: 0.3s ease;
   margin-right: 50px;
+  width: 170px;
+  height: 38px;
 }
 
 .custom-upload:hover {
-  background-color: #45a049;
+  background-color: #4CBB17;
 }
 
 button {
-  padding: 10px 20px;
   border: none;
   border-radius: 8px;
   background-color: #007BFF;
   color: white;
+  font-family: "Mulish", sans-serif;
   font-size: 16px;
   cursor: pointer;
   transition: 0.3s ease;
+  width: 97px;
+  height: 38px;
 }
 
 button:hover {
@@ -130,10 +139,11 @@ button:hover {
 #preview {
   display: none;
   max-width: 80%;
-  height: auto;
+  height: 300px;
+  width: 400px;
   border-radius: 10px;
   margin-top: 10px;
-  border: 2px solid #4CAF50;
+  border: 2px solid #4CBB17;
   box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
 }
 
