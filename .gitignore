@@ -1,0 +1,49 @@
+# Python build & cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# Virtual environments
+env/
+venv/
+.venv/
+venv*/ 
+*.egg-info/
+.eggs/
+
+# IDE & editor settings
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Logs & temporary files
+*.log
+*.tmp
+*.bak
+.DS_Store
+Thumbs.db
+
+# Output data / generated datasets
+data/features*.csv
+data/features.csv
+data/features_*.csv
+data/*.csv
+data/*.xlsx
+data/*.json
+
+# Keep labels.csv (source of truth)
+!data/labels.csv
+
+# Raw images (optional — if large)
+data/images/
+!data/images/.gitkeep   # empty marker if you want folder tracked
+
+# Matplotlib & OpenCV temp windows
+*.jpg
+*.jpeg
+
+# OS-specific / misc
+desktop.ini
