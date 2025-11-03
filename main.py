@@ -6,9 +6,10 @@ from fastapi.requests import Request
 import shutil
 import os
 from fastapi.responses import JSONResponse
+import cv2 as cv
+import numpy as np
 from texture import analyze_image
 
- 
 
 app = FastAPI()
 
