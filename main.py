@@ -39,6 +39,10 @@ async def about(request: Request):
 async def info(request: Request):
     return templates.TemplateResponse("info.html", {"request": request})
 
+@app.get("/repo", response_class=HTMLResponse)
+async def info(request: Request):
+    return templates.TemplateResponse("repo.html", {"request": request})
+
 @app.post("/process/")
 async def process_image(file: UploadFile = File(...)):
     contents = await file.read()
