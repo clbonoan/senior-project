@@ -1,0 +1,39 @@
+<html>
+<head>
+  <title>Shadow Check</title>
+ <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
+ <link rel ="icon" type="image/x-icon" href="{{ url_for('static', path='favicon.png')}}">
+</head>
+
+ 
+<body>
+   <nav class="navbar">
+    <div class="nav-left">
+
+      <a href="/">
+        <img src="{{ url_for('static', path='/favicon.png') }}" alt="Home" class="nav-logo">
+      </a>
+    </div>
+    <div class="nav-right">
+          <a href="https://github.com/clbonoan/senior-project"> Repository </a>
+          <a href="/about"> About Us</a>
+          <a href="/info" class="active"> Information</a>
+      </div>
+  </nav>
+
+  <br>
+  <br>
+  <br>
+
+  <h1> Information </h1>
+  
+  <p> This project aims to train a machine learning model to detect image tampering through shadow-based features such as texture, lighting, and depth. 
+  The focus is on urban infrastructure, where aerial and ground-level images are frequently utilized to monitor potential projects and development progress. 
+  We plan to develop a web application that analyzes an image's shadows and provides a tampering likelihood score with a visual of suspicious regions. 
+  Our approach uses pixel-based algorithms to extract shadow texture, lighting strength, and depth characteristics to improve detection accuracy. 
+  We seek to support digital forensics and ensure the authenticity of urban imagery used in planning and reporting. </p>
+
+  
+</body>
+
+</html>

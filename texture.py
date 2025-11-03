@@ -414,26 +414,26 @@ def analyze_image(path, visualize=True):
         overlay[mask == 255] = (0, 0, 255)  # red mask overlay
         overlay = cv.addWeighted(img, 0.7, overlay, 0.3, 0)
 
-        cv.namedWindow("Shadow Mask", cv.WINDOW_NORMAL)
-        cv.resizeWindow("Shadow Mask", 800, 600)
-        cv.imshow("Shadow Mask", mask)
+        #cv.namedWindow("Shadow Mask", cv.WINDOW_NORMAL)
+        #cv.resizeWindow("Shadow Mask", 800, 600)
+        #cv.imshow("Shadow Mask", mask)
 
-        cv.namedWindow("Canny Edges (on L)", cv.WINDOW_NORMAL)
-        cv.resizeWindow("Canny Edges (on L)", 800, 600)
-        cv.imshow("Canny Edges (on L)", edges)
+        #cv.namedWindow("Canny Edges (on L)", cv.WINDOW_NORMAL)
+        #cv.resizeWindow("Canny Edges (on L)", 800, 600)
+        #cv.imshow("Canny Edges (on L)", edges)
 
-        cv.namedWindow("Overlay", cv.WINDOW_NORMAL)
-        cv.resizeWindow("Overlay", 800, 600)
-        cv.imshow("Overlay", overlay)
+        #cv.namedWindow("Overlay", cv.WINDOW_NORMAL)
+        #cv.resizeWindow("Overlay", 800, 600)
+        #cv.imshow("Overlay", overlay)
 
         cv.waitKey(1)
 
         # show lbp with matplotlib
-        plt.figure(figsize=(8, 6))
+        #plt.figure(figsize=(8, 6))
         #plt.imshow(lbp_vis, cmap="gray")
-        plt.imshow(cv.cvtColor(lbp_color, cv.COLOR_BGR2RGB))
-        plt.title("LBP (on L)")
-        plt.show()
+        #plt.imshow(cv.cvtColor(lbp_color, cv.COLOR_BGR2RGB))
+        #plt.title("LBP (on L)")
+        #plt.show()
 
         cv.waitKey(0)
         cv.destroyAllWindows()
@@ -441,9 +441,10 @@ def analyze_image(path, visualize=True):
     return {
         "mask": mask, "edges": edges, "lbp": lbp,
         "L8": L8, "gx": gx, "gy": gy,
-        "features": features
+        "features": features,
+        "tamper_score": float(tamper) if 'tamper' in locals() else 0.0
     }
 
 if __name__ == "__main__":
-    analyze_image("data/images/s2.jpg")
+    analyze_image("images/s2.jpg")
 
