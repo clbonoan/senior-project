@@ -39,7 +39,7 @@ data/*.json
 
 # Raw images (optional — if large)
 data/images/
-!data/images/.keep   # empty marker if you want folder tracked
+!data/images/.gitkeep   # empty marker if you want folder tracked
 
 # Matplotlib & OpenCV temp windows
 *.jpg
