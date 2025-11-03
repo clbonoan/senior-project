@@ -1,24 +1,57 @@
-# import sys
-# import cannyedge
-# import hough
-# import lbp
+from fastapi import FastAPI, UploadFile, File, Form
+from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from fastapi.requests import Request
+import shutil
+import os
+from fastapi.responses import JSONResponse
+from texture import analyze_image
 
-# if len(sys.argv) > 2:
-#     arg1 = sys.argv[1]
-#     arg2 = sys.argv[2]
+ 
 
-#     match(arg1):
-#         case "canny":
-#             cannyedge.canny(arg2)
+app = FastAPI()
 
-#         case "hough":
-#             hough.hough(arg2)    
+#to load images and style.css 
+app.mount("/static", StaticFiles(directory="static"), name="static")
+#connects fastapi to .htmlfile
+templates = Jinja2Templates(directory="templates")
 
-#         case "lbp":
-#             lbp.lbp(arg2)
-            
-#         case _:
-#             print(f"Unknown operation: {arg1}")
+#uploaded files go in uploads
+UPLOAD_DIR = "static/uploads"
+#processed files go in processed
+OUTPUT_DIR = "static/processed"
 
-# else:
-#     print(f"arg1 [algorithm name] arg2 [image file name (jpg or jpeg ONLY)]")
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+#when website is visited, it calls index.html 
+@app.get("/", response_class=HTMLResponse)
+async def upload_page(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request})
+
+@app.get("/about", response_class=HTMLResponse)
+async def about(request: Request):
+    return templates.TemplateResponse("about.html", {"request": request})
+
+@app.get("/info", response_class=HTMLResponse)
+async def info(request: Request):
+    return templates.TemplateResponse("info.html", {"request": request})
+
+@app.post("/process/")
+async def process_image(file: UploadFile = File(...)):
+    input_path = os.path.join(UPLOAD_DIR, file.filename)
+    
+    with open(input_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+    
+    #call to function in texture2.py and not open openCV windows
+    result = analyze_image(input_path, visualize=False)
+    
+    print("Result returned from texture1:", result)
+
+    score = 0.0
+    if isinstance(result, dict) and "tamper_score" in result:
+        score = result["tamper_score"]
+
+    return JSONResponse({"tamper_score": score})
