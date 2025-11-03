@@ -40,13 +40,16 @@ async def info(request: Request):
 
 @app.post("/process/")
 async def process_image(file: UploadFile = File(...)):
-    input_path = os.path.join(UPLOAD_DIR, file.filename)
-    
-    with open(input_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-    
-    #call to function in texture2.py and not open openCV windows
-    result = analyze_image(input_path, visualize=False)
+    contents = await file.read()
+
+    np_img = np.frombuffer(contents, np.uint8)
+
+    img = cv.imdecode(np_img, cv.IMREAD_COLOR)
+
+    if img is None:
+        return JSONResponse({"error": "Could not read uploaded image."}, status_Code = 400)
+ 
+    result = analyze_image(img, visualize=False)
     
     print("Result returned from texture1:", result)
 
