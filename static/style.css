@@ -13,6 +13,7 @@ body {
   padding-top: 80px; /* so content isn't hidden under navbar */
   text-align: center;
   margin: 0 auto;
+  padding-bottom: 60px;
 }
 
 .navbar {
