@@ -8,7 +8,7 @@ import os
 from fastapi.responses import JSONResponse
 import cv2 as cv
 import numpy as np
-from texture import analyze_image
+from texture import analyze_texture
 
 
 app = FastAPI()
@@ -39,6 +39,10 @@ async def about(request: Request):
 async def info(request: Request):
     return templates.TemplateResponse("info.html", {"request": request})
 
+@app.get("/repo", response_class=HTMLResponse)
+async def info(request: Request):
+    return templates.TemplateResponse("repo.html", {"request": request})
+
 @app.post("/process/")
 async def process_image(file: UploadFile = File(...)):
     contents = await file.read()
@@ -50,7 +54,7 @@ async def process_image(file: UploadFile = File(...)):
     if img is None:
         return JSONResponse({"error": "Could not read uploaded image."}, status_Code = 400)
  
-    result = analyze_image(img, visualize=False)
+    result = analyze_texture(img, visualize=False)
     
     print("Result returned from texture1:", result)
 

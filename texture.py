@@ -6,7 +6,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 from features import features_from_products
 
-
 # ========================================================
 # LOCAL BINARY PATTERN
 # =========================================================
@@ -138,7 +137,7 @@ def make_shadow_mask(
     dr = 0.06, dg = 0.06,   # chroma-consistency tolerance in normalized RGB
     morph_open = 3,
     morph_close = 7,
-    min_area = 400
+    min_area = 400,
 ): 
     # based on paper by Uddin, Khanam, Khan, Deb, and Jo detailing color models HSI and YCbCr
     # 1. chromatic attainment on S: Im = S - log(S + delta)
@@ -214,10 +213,6 @@ def make_shadow_mask(
     mask = remove_small(mask, min_area=min_area)
     
     # stats for detected shadow regions
-    #print("Mask fraction:", float(np.mean(mask > 0)))
-    #print(f"S range: [{S.min():.3f}, {S.max():.3f}], mean: {S.mean():.3f}")
-    #print(f"I range: [{I.min():.3f}, {I.max():.3f}], mean: {I.mean():.3f}")
-    #print(f"I' range: [{Iprime.min():.3f}, {Iprime.max():.3f}], mean: {Iprime.mean():.3f}")
     print(f"roi_dark_frac={roi_dark.mean():.3f}")
     print(f"S_thr={S_thr:.3f}")  
     print(f"Ip_thr={Ip_thr:.3f}")  
@@ -291,11 +286,15 @@ def sample_patches(img2d, y, x, ny, nx, size=21, offset=6):
     return pin, pout
 
 # ---------------------------------------------------------
-# MAIN
+# choosing image
 # ---------------------------------------------------------
-def analyze_image(path, visualize=True):
-    img = cv.imread(path, cv.IMREAD_COLOR)
-    assert img is not None, f"Cannot read image: {path}"
+def analyze_texture(image_input, visualize=True):
+    if isinstance(image_input, str):
+        img = cv.imread(image_input)
+    else:
+        img = image_input
+
+    assert img is not None, f"Cannot read image: {image_input}"
 
     # 1. shadow mask
     mask,L = make_shadow_mask(
@@ -414,26 +413,26 @@ def analyze_image(path, visualize=True):
         overlay[mask == 255] = (0, 0, 255)  # red mask overlay
         overlay = cv.addWeighted(img, 0.7, overlay, 0.3, 0)
 
-        #cv.namedWindow("Shadow Mask", cv.WINDOW_NORMAL)
-        #cv.resizeWindow("Shadow Mask", 800, 600)
-        #cv.imshow("Shadow Mask", mask)
+        cv.namedWindow("Shadow Mask", cv.WINDOW_NORMAL)
+        cv.resizeWindow("Shadow Mask", 800, 600)
+        cv.imshow("Shadow Mask", mask)
 
-        #cv.namedWindow("Canny Edges (on L)", cv.WINDOW_NORMAL)
-        #cv.resizeWindow("Canny Edges (on L)", 800, 600)
-        #cv.imshow("Canny Edges (on L)", edges)
+        cv.namedWindow("Canny Edges (on L)", cv.WINDOW_NORMAL)
+        cv.resizeWindow("Canny Edges (on L)", 800, 600)
+        cv.imshow("Canny Edges (on L)", edges)
 
-        #cv.namedWindow("Overlay", cv.WINDOW_NORMAL)
-        #cv.resizeWindow("Overlay", 800, 600)
-        #cv.imshow("Overlay", overlay)
+        cv.namedWindow("Overlay", cv.WINDOW_NORMAL)
+        cv.resizeWindow("Overlay", 800, 600)
+        cv.imshow("Overlay", overlay)
 
         cv.waitKey(1)
 
-        # show lbp with matplotlib
-        #plt.figure(figsize=(8, 6))
-        #plt.imshow(lbp_vis, cmap="gray")
-        #plt.imshow(cv.cvtColor(lbp_color, cv.COLOR_BGR2RGB))
-        #plt.title("LBP (on L)")
-        #plt.show()
+        #show lbp with matplotlib
+        plt.figure(figsize=(8, 6))
+        plt.imshow(lbp_vis, cmap="gray")
+        plt.imshow(cv.cvtColor(lbp_color, cv.COLOR_BGR2RGB))
+        plt.title("LBP (on L)")
+        plt.show()
 
         cv.waitKey(0)
         cv.destroyAllWindows()
@@ -446,5 +445,5 @@ def analyze_image(path, visualize=True):
     }
 
 if __name__ == "__main__":
-    analyze_image("images/s2.jpg")
+    analyze_texture("data/images/1.jpg")
 
