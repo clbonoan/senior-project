@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <title>Shadow Check</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
+    <link rel ="icon" type="image/x-icon" href="{{ url_for('static', path='favicon.png')}}">
+    <!--<link rel="stylesheet" href="https://unpkg.com/github-markdown-css@5.5.1/github-markdown.min.css">-->
+</head>
+
+<body>
+    <nav class="navbar">
+     <div class="nav-left">
+ 
+       <a href="/">
+         <img src="{{ url_for('static', path='/favicon.png') }}" alt="Home" class="nav-logo">
+       </a>
+     </div>
+     <div class="nav-right">
+           <a href="/repo" class="active"> Repository </a>
+           <a href="/about"> About Us</a>
+           <a href="/info"> Information</a>
+       </div>
+    </nav>
+
+    <h2 id="repo-title">README.md from GitHub Repository</h2>
+    <a target="_blank" rel="noopener noreferrer" href="https://www.github.com/clbonoan/senior-project" id="repo-link">
+        GO TO REPOSITORY
+    </a>
+    <br>
+    <br>
+    <div id="readme-container">
+        <div class="markdown-body" id="readme">
+            <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+            <script>
+                    const owner = "clbonoan";
+                    const repo = "senior-project";
+                    const branch = "main";
+
+                    const readmeUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/README.md`;
+
+                    async function loadReadme() {
+                        const res = await fetch(readmeUrl);
+                        const md  = await res.text();
+                        document.getElementById('readme').innerHTML = marked.parse(md);
+                    }
+                    loadReadme();
+            </script>
+        </div>
+   </div>
+   <!--<iframe src="https://github.com/clbonoan/senior-project" title="GitHub Repository"></iframe>-->
+</body>
+</html>

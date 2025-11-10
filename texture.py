@@ -93,7 +93,7 @@ def bgr_to_hsi(img_bgr):
     min_rgb = np.minimum(np.minimum(R, G), B)
     S = np.where(I > 1e-6, 1 - (min_rgb / (I + 1e-6)), 0)
     
-    # hue (not needed for shadow detection but included for completeness)
+    # hue (not needed for shadow detection)
     num = 0.5 * ((R - G) + (R - B))
     den = np.sqrt((R - G)**2 + (R - B) * (G - B)) + 1e-6
     theta = np.arccos(np.clip(num / den, -1, 1))
@@ -110,11 +110,14 @@ def srgb_to_linear(x8):
 
 def normalized_rgb(img_bgr):
     b, g, r = cv.split(img_bgr.astype(np.float32))
+    # calculate sum of pixel values
+    # total light intensity (similar to luminance) at each pixel location
     s = r + g + b + 1e-6
     return r/s, g/s     # chroma ratios red and green since they are more stable than blue channel
 
 def bgr_to_hsi_linear(img_bgr):
-    # compute H,S,I in linear light (important for shadows)
+    # compute H,S,I in linear luminance
+    # this is important to adjust brightness without affecting shadow's hue or saturation
     B, G, R = cv.split(img_bgr.astype(np.float32) / 255.0)
     Rl, Gl, Bl = srgb_to_linear(R), srgb_to_linear(G), srgb_to_linear(B)
     I = (Rl + Gl + Bl) / 3.0
@@ -288,7 +291,11 @@ def sample_patches(img2d, y, x, ny, nx, size=21, offset=6):
 # ---------------------------------------------------------
 # choosing image
 # ---------------------------------------------------------
+<<<<<<< HEAD
 def analyze_texture(image_input, visualize=True):
+=======
+def analyze_image(image_input, visualize=True):
+>>>>>>> 163786b7bb6f3186d00b833673a7d392bdb502e4
     if isinstance(image_input, str):
         img = cv.imread(image_input)
     else:
@@ -352,7 +359,7 @@ def analyze_texture(image_input, visualize=True):
                 continue
             nx, ny = g[0]/nrm, g[1]/nrm
 
-            # sample patches on L and on LBP
+            # sample patches on L (luminance) channel and on LBP
             pinL,  poutL    = sample_patches(L8,  y, x, ny, nx, size=patch_size, offset=patch_offset)
             pinLBP, poutLBP = sample_patches(lbp, y, x, ny, nx, size=patch_size, offset=patch_offset)
             if pinL.shape != (patch_size, patch_size) or poutL.shape != (patch_size, patch_size):
@@ -417,9 +424,15 @@ def analyze_texture(image_input, visualize=True):
         cv.resizeWindow("Shadow Mask", 800, 600)
         cv.imshow("Shadow Mask", mask)
 
+<<<<<<< HEAD
         cv.namedWindow("Canny Edges (on L)", cv.WINDOW_NORMAL)
         cv.resizeWindow("Canny Edges (on L)", 800, 600)
         cv.imshow("Canny Edges (on L)", edges)
+=======
+        # cv.namedWindow("Canny Edges (on L)", cv.WINDOW_NORMAL)
+        # cv.resizeWindow("Canny Edges (on L)", 800, 600)
+        # cv.imshow("Canny Edges (on L)", edges)
+>>>>>>> 163786b7bb6f3186d00b833673a7d392bdb502e4
 
         cv.namedWindow("Overlay", cv.WINDOW_NORMAL)
         cv.resizeWindow("Overlay", 800, 600)
@@ -427,7 +440,11 @@ def analyze_texture(image_input, visualize=True):
 
         cv.waitKey(1)
 
+<<<<<<< HEAD
         #show lbp with matplotlib
+=======
+        # show lbp with matplotlib
+>>>>>>> 163786b7bb6f3186d00b833673a7d392bdb502e4
         plt.figure(figsize=(8, 6))
         plt.imshow(lbp_vis, cmap="gray")
         plt.imshow(cv.cvtColor(lbp_color, cv.COLOR_BGR2RGB))
@@ -445,5 +462,9 @@ def analyze_texture(image_input, visualize=True):
     }
 
 if __name__ == "__main__":
+<<<<<<< HEAD
     analyze_texture("data/images/1.jpg")
+=======
+    analyze_image("data/images/1-edited.jpg")
+>>>>>>> 163786b7bb6f3186d00b833673a7d392bdb502e4
 
