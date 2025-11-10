@@ -291,11 +291,7 @@ def sample_patches(img2d, y, x, ny, nx, size=21, offset=6):
 # ---------------------------------------------------------
 # choosing image
 # ---------------------------------------------------------
-<<<<<<< HEAD
 def analyze_texture(image_input, visualize=True):
-=======
-def analyze_image(image_input, visualize=True):
->>>>>>> 163786b7bb6f3186d00b833673a7d392bdb502e4
     if isinstance(image_input, str):
         img = cv.imread(image_input)
     else:
@@ -424,15 +420,9 @@ def analyze_image(image_input, visualize=True):
         cv.resizeWindow("Shadow Mask", 800, 600)
         cv.imshow("Shadow Mask", mask)
 
-<<<<<<< HEAD
         cv.namedWindow("Canny Edges (on L)", cv.WINDOW_NORMAL)
         cv.resizeWindow("Canny Edges (on L)", 800, 600)
         cv.imshow("Canny Edges (on L)", edges)
-=======
-        # cv.namedWindow("Canny Edges (on L)", cv.WINDOW_NORMAL)
-        # cv.resizeWindow("Canny Edges (on L)", 800, 600)
-        # cv.imshow("Canny Edges (on L)", edges)
->>>>>>> 163786b7bb6f3186d00b833673a7d392bdb502e4
 
         cv.namedWindow("Overlay", cv.WINDOW_NORMAL)
         cv.resizeWindow("Overlay", 800, 600)
@@ -440,11 +430,7 @@ def analyze_image(image_input, visualize=True):
 
         cv.waitKey(1)
 
-<<<<<<< HEAD
         #show lbp with matplotlib
-=======
-        # show lbp with matplotlib
->>>>>>> 163786b7bb6f3186d00b833673a7d392bdb502e4
         plt.figure(figsize=(8, 6))
         plt.imshow(lbp_vis, cmap="gray")
         plt.imshow(cv.cvtColor(lbp_color, cv.COLOR_BGR2RGB))
@@ -462,9 +448,5 @@ def analyze_image(image_input, visualize=True):
     }
 
 if __name__ == "__main__":
-<<<<<<< HEAD
     analyze_texture("data/images/1.jpg")
-=======
-    analyze_image("data/images/1-edited.jpg")
->>>>>>> 163786b7bb6f3186d00b833673a7d392bdb502e4
 
