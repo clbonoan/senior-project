@@ -183,7 +183,8 @@ p {
   margin: 0 auto;
   padding: 40px 20px;
   overflow-x: auto;
-  overflow-y: scroll;
+  overflow-y: auto;
+  text-align: left;
 }
 
 .markdown-body h1 {
