@@ -420,9 +420,9 @@ def analyze_texture(image_input, visualize=True):
         cv.resizeWindow("Shadow Mask", 800, 600)
         cv.imshow("Shadow Mask", mask)
 
-        cv.namedWindow("Canny Edges (on L)", cv.WINDOW_NORMAL)
-        cv.resizeWindow("Canny Edges (on L)", 800, 600)
-        cv.imshow("Canny Edges (on L)", edges)
+        # cv.namedWindow("Canny Edges (on L)", cv.WINDOW_NORMAL)
+        # cv.resizeWindow("Canny Edges (on L)", 800, 600)
+        # cv.imshow("Canny Edges (on L)", edges)
 
         cv.namedWindow("Overlay", cv.WINDOW_NORMAL)
         cv.resizeWindow("Overlay", 800, 600)
@@ -448,5 +448,4 @@ def analyze_texture(image_input, visualize=True):
     }
 
 if __name__ == "__main__":
-    analyze_texture("data/images/1.jpg")
-
+    analyze_texture("data/images/2.jpg")

@@ -195,13 +195,13 @@ def features_one_shadow(img_bgr, comp_mask_bool, ring_px=4, chroma_thr=0.04, dar
     # if vals.size < 50:
     #    return None
     
-    # shadow strength estimation
+    # shadow strength estimation in umbra
     Ys = Y[umbra]
     Ys = Ys[np.isfinite(Ys)]
     if Ys.size < 50:
         return None
 
-    # shadow
+    # shadow strength using paper's approach
     # use ratio of shadow to lit intensity (more stable than paper formula for diverse scenes)
     strength_ratios = Ys / (Yn + 1e-6)
 
