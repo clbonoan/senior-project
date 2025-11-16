@@ -124,7 +124,7 @@ def bgr_to_hsi_linear(img_bgr):
     min_rgb = np.minimum(np.minimum(Rl, Gl), Bl)
     S = np.where(I > 1e-6, 1.0 - (min_rgb / (I + 1e-6)), 0.0)
 
-    # hue not used; return dummy H to keep signature the same
+    # hue not used; return a dummy H to keep signature the same
     H = np.zeros_like(I, dtype=np.float32)
     return H, S, I
 
@@ -142,10 +142,12 @@ def make_shadow_mask(
     morph_close = 7,
     min_area = 400,
 ): 
-    # based on paper by Uddin, Khanam, Khan, Deb, and Jo detailing color models HSI and YCbCr
-    # 1. chromatic attainment on S: Im = S - log(S + delta)
-    # 2. intensity attainment: I' = I + beta * Y    (Y is from YCrCb color model)
-    # 3. shadow if I' is highly saturated and S' (boosted) is low
+    '''
+    based on paper by Uddin, Khanam, Khan, Deb, and Jo detailing color models HSI and YCbCr
+    1. chromatic attainment on S: Im = S - log(S + delta)
+    2. intensity attainment: I' = I + beta * Y    (Y is from YCrCb color model)
+    3. shadow if I' is highly saturated and S' (boosted) is low
+    '''
     
     # HSV for saturation and intensity (V (value) is used for intensity)
     #hsv = cv.cvtColor(img_bgr, cv.COLOR_BGR2HSV).astype(np.float32)
@@ -183,28 +185,30 @@ def make_shadow_mask(
 
     # chroma-consistency (checked since shadows dim but do not change color)
     nr, ng = normalized_rgb(img_bgr)
-    mnr = box_mean(nr, 41)
-    mng = box_mean(ng, 41)
+    mnr = box_mean(nr, 41)  # mean of normalized r
+    mng = box_mean(ng, 41)  # mean of normalized g
     chroma_ok = (np.abs(nr - mnr) < dr) & (np.abs(ng - mng) < dg)
 
     # self-tuning thresholds from region of interest percentiles
     S_thr = float(min(0.30, np.percentile(S[roi_dark], 40) + 0.02))
     Ip_thr = float(np.percentile(Iprime[roi_dark], 60))
 
-    # constraints for shadow mask based on if I' = 255 & S about 0
-    # to make it adaptive to all images, shadows have:
-    # - low saturation (S below given threshold)
-    # - low intensity even after intensity boost (I' < I_threshold) -> shadows stay dark
-    # - were already dark before intensity boost (roi_dark) -> must start dark
-    # - shadows do not change color even after boost (chroma_ok)
+    '''
+    constraints for shadow mask based on if I' = 255 & S about 0
+    to make it adaptive to all images, shadows have:
+    - low saturation (S below given threshold)
+    - low intensity even after intensity boost (I' < I_threshold) -> shadows stay dark
+    - were already dark before intensity boost (roi_dark) -> must start dark
+    - shadows do not change color even after boost (chroma_ok)
+    '''
     mask = (roi_dark & chroma_ok & (S <= S_thr) & (Iprime <= Ip_thr)).astype(np.uint8) * 255
 
     # refine to put weak edges at boundaries
-    L8 = (I * 255).astype(np.uint8)
-    edges = cv.Canny(L8, 50, 150)
-    outline = cv.morphologyEx(mask, cv.MORPH_GRADIENT, cv.getStructuringElement(cv.MORPH_ELLIPSE, (3,3)))
-    snap = cv.bitwise_and(outline, cv.dilate(edges, cv.getStructuringElement(cv.MORPH_RECT, (3,3)), 1))
-    mask = cv.bitwise_or(mask, snap)
+    # L8 = (I * 255).astype(np.uint8)
+    # edges = cv.Canny(L8, 50, 150)
+    # outline = cv.morphologyEx(mask, cv.MORPH_GRADIENT, cv.getStructuringElement(cv.MORPH_ELLIPSE, (3,3)))
+    # snap = cv.bitwise_and(outline, cv.dilate(edges, cv.getStructuringElement(cv.MORPH_RECT, (3,3)), 1))
+    # mask = cv.bitwise_or(mask, snap)
 
     # use morphological image processing to remove specks and fill in small holes
     if morph_open > 1:
@@ -215,22 +219,8 @@ def make_shadow_mask(
         mask = cv.morphologyEx(mask, cv.MORPH_CLOSE, k2)
     mask = remove_small(mask, min_area=min_area)
     
-    # stats for detected shadow regions
-    print(f"roi_dark_frac={roi_dark.mean():.3f}")
-    print(f"S_thr={S_thr:.3f}")  
-    print(f"Ip_thr={Ip_thr:.3f}")  
-    print(f"fmask_frac={(mask>0).mean():.3f}")
     # return mask and luminance channel to reuse (V)
     return mask, (I * 255).astype(np.float32)
-
-# --------------------------------------------------------
-# Canny Edge Detection on luminance
-# --------------------------------------------------------
-def canny_on_L(L_f32, low = 50, high = 150):
-    # do the edge detection on the L channel (luminance/brightness)
-    # detect strong brightness changes and potential shadow boundaries
-    L8 = cv.normalize(L_f32, None, 0, 255, cv.NORM_MINMAX).astype(np.uint8)
-    return cv.Canny(L8, low, high), L8
 
 # ---------------------------------------------------------
 # Texture Comparison and Helpers
@@ -257,9 +247,10 @@ def map_to_01(x, lo, hi):
         return 0.0
     # interpolate
     y = (x - lo) / (hi - lo)
-    # clip softly
+    # clip 
     return max(0.0, min(1.0, y))
 
+# return patches and top-left coordinates so they can be drawn
 def sample_patches(img2d, y, x, ny, nx, size=21, offset=6):
     # extract two small patches:
     # - one inside the shadow (darker side)
@@ -284,14 +275,19 @@ def sample_patches(img2d, y, x, ny, nx, size=21, offset=6):
     y0_out = clamp(yi_out - s, 0, h - size)
     x0_out = clamp(xi_out - s, 0, w - size)
 
-    pin  = img2d[y0_in:y0_in+size,   x0_in:x0_in+size  ]
+    pin  = img2d[y0_in:y0_in+size, x0_in:x0_in+size]
     pout = img2d[y0_out:y0_out+size, x0_out:x0_out+size]
-    return pin, pout
+    return pin, pout, (x0_in, y0_in), (x0_out, y0_out)
 
 # ---------------------------------------------------------
 # choosing image
 # ---------------------------------------------------------
-def analyze_texture(image_input, visualize=True):
+def analyze_texture(image_input, visualize=True, max_pairs_vis=200):
+    '''
+    analyze texture across shadow boundaries using LBP and return chi-square similarities
+    - highlight the exact patches inside and outside shadow that are compared
+    - return raw chi-square distances for ML feature engineering
+    '''
     if isinstance(image_input, str):
         img = cv.imread(image_input)
     else:
@@ -299,7 +295,7 @@ def analyze_texture(image_input, visualize=True):
 
     assert img is not None, f"Cannot read image: {image_input}"
 
-    # 1. shadow mask
+    # shadow mask
     mask,L = make_shadow_mask(
         img, 
         beta = 0.8,  # trying 0.6-0.8 (street level) or 0.8-1.0 (aerial)
@@ -309,12 +305,11 @@ def analyze_texture(image_input, visualize=True):
         morph_open = 3, morph_close = 7, min_area = 300
     )
 
-    # 2. canny edge
+    # canny edge
     # outline of the mask
     k = cv.getStructuringElement(cv.MORPH_ELLIPSE, (3, 3))
     mask_outline = cv.morphologyEx(mask, cv.MORPH_GRADIENT, k)
-    edges, L8 = canny_on_L(L, low = 50, high = 150)
-    shadow_edges = cv.bitwise_and(edges, edges, mask=mask_outline)
+    L8 = np.uint8(np.clip(L, 0, 255))
 
     # gradients of light to estimate boundary normal directions
     gx = cv.Sobel(L8, cv.CV_32F, 1, 0, ksize=3)
@@ -331,20 +326,25 @@ def analyze_texture(image_input, visualize=True):
     ys, xs = np.where(mask_outline > 0)              # use the mask boundary itself
     
     # initialize lists/vars
-    d_list, c_list, s_arr = [], [], []
-    d_lo, d_hi = 0.0, 1.0
+    #d_list, c_list, s_arr = [], [], []
+    #d_lo, d_hi = 0.0, 1.0
+    chi2_list = []  # per-pair chi-square distances (lower = more similar)
+    patch_pairs = []    # rectangles for visualization
+    
     valid = 0
 
     if len(ys) == 0:
-        print("Tamper score: 0.00 (no boundary)")
-    else:
+    #     print("Tamper score: 0.00 (no boundary)")
+    # else:
+    
         # parameters
         patch_size   = 25
         patch_offset = 9
         min_contrast = 0.04       # slightly lower gate
-        contrast_weight = 0.75
+        #contrast_weight = 0.75
 
         step = max(1, len(ys)//1200)  # use a subsample for speed
+        
         for idx in range(0, len(ys), step):
             y, x = int(ys[idx]), int(xs[idx])
 
@@ -356,8 +356,8 @@ def analyze_texture(image_input, visualize=True):
             nx, ny = g[0]/nrm, g[1]/nrm
 
             # sample patches on L (luminance) channel and on LBP
-            pinL,  poutL    = sample_patches(L8,  y, x, ny, nx, size=patch_size, offset=patch_offset)
-            pinLBP, poutLBP = sample_patches(lbp, y, x, ny, nx, size=patch_size, offset=patch_offset)
+            pinL,  poutL, in_xy, out_xy = sample_patches(L8,  y, x, ny, nx, size=patch_size, offset=patch_offset)
+            pinLBP, poutLBP, _, _ = sample_patches(lbp, y, x, ny, nx, size=patch_size, offset=patch_offset)
             if pinL.shape != (patch_size, patch_size) or poutL.shape != (patch_size, patch_size):
                 continue
 
@@ -367,6 +367,7 @@ def analyze_texture(image_input, visualize=True):
                 # swap if orientation came out reversed or flat
                 pinL, poutL = poutL, pinL
                 pinLBP, poutLBP = poutLBP, pinLBP
+                in_xy, out_xy = out_xy, in_xy
                 m_in, m_out = m_out, m_in
 
             # contrast gate
@@ -377,75 +378,116 @@ def analyze_texture(image_input, visualize=True):
             # chi-squared distance between LBP histograms
             d = chi2(lbp_hist(pinLBP), lbp_hist(poutLBP))
 
-            d_list.append(d)
-            c_list.append(c)
+            #d_list.append(d)
+            #c_list.append(c)
+            chi2_list.append(d)
+            patch_pairs.append((in_xy, out_xy, patch_size))
             valid += 1
 
-        if valid == 0:
-            print("Tamper score: 0.00 (no valid samples after gates)")
-        else:
-            d_arr = np.array(d_list, dtype=np.float32)
-            c_arr = np.array(c_list, dtype=np.float32)
+        # if valid == 0:
+        #     print("Tamper score: 0.00 (no valid samples after gates)")
+        # else:
+        #     d_arr = np.array(d_list, dtype=np.float32)
+        #     c_arr = np.array(c_list, dtype=np.float32)
 
-            # adaptive mapping of chi-squared → [0,1]
-            # using 35th percentile and 85th percentile
-            d_lo = float(np.percentile(d_arr, 35))   # “similar” boundary
-            d_hi = float(np.percentile(d_arr, 85))   # “different” boundary
-            if d_hi <= d_lo:                          # safety
-                d_hi = d_lo + 1e-3
+        #     # adaptive mapping of chi-squared → [0,1]
+        #     # using 35th percentile and 85th percentile
+        #     d_lo = float(np.percentile(d_arr, 35))   # “similar” boundary
+        #     d_hi = float(np.percentile(d_arr, 85))   # “different” boundary
+        #     if d_hi <= d_lo:                          # safety
+        #         d_hi = d_lo + 1e-3
 
-            # map each sample to anomaly score and weight by contrast
-            t_arr = np.clip((d_arr - d_lo) / (d_hi - d_lo), 0.0, 1.0)
-            s_arr = np.clip((1.0 - contrast_weight) * t_arr +
-                            contrast_weight * (t_arr * c_arr), 0.0, 1.0)
+        #     # map each sample to anomaly score and weight by contrast
+        #     t_arr = np.clip((d_arr - d_lo) / (d_hi - d_lo), 0.0, 1.0)
+        #     s_arr = np.clip((1.0 - contrast_weight) * t_arr +
+        #                     contrast_weight * (t_arr * c_arr), 0.0, 1.0)
 
-            tamper = float(np.mean(s_arr))
-            print(f"Valid boundary samples: {valid}")
-            print(f"Chi-squared percentiles: P35={d_lo:.3f}, P85={d_hi:.3f}")
-            print(f"Tamper score (boundary): {tamper:.2f} (0 = normal, 1 = likely tampered)")
+        #     tamper = float(np.mean(s_arr))
+        #     print(f"Valid boundary samples: {valid}")
+        #     print(f"Chi-squared percentiles: P35={d_lo:.3f}, P85={d_hi:.3f}")
+        #     print(f"Tamper score (boundary): {tamper:.2f} (0 = normal, 1 = likely tampered)")
 
-    # build feature measurements
+    # build feature measurements for training
     features = features_from_products(
-        mask=mask, edges=edges, lbp=lbp, L8=L8, gx=gx, gy=gy,
-        d_list=d_list, c_list=c_list, s_arr=s_arr, d_lo=d_lo, d_hi=d_hi
+        mask = mask,
+        lbp = lbp,
+        L8 = L8, 
+        gx = gx,
+        gy = gy,
+        chi2_list = chi2_list,
     )
 
     if visualize:
         # visualize results
-        overlay = img.copy()
-        overlay[mask == 255] = (0, 0, 255)  # red mask overlay
-        overlay = cv.addWeighted(img, 0.7, overlay, 0.3, 0)
+        mask_overlay = img.copy()
+        mask_overlay[mask == 255] = (0, 0, 255)  # red mask overlay
+        mask_overlay = cv.addWeighted(img, 0.7, mask_overlay, 0.3, 0)
 
         cv.namedWindow("Shadow Mask", cv.WINDOW_NORMAL)
         cv.resizeWindow("Shadow Mask", 800, 600)
         cv.imshow("Shadow Mask", mask)
 
-        # cv.namedWindow("Canny Edges (on L)", cv.WINDOW_NORMAL)
-        # cv.resizeWindow("Canny Edges (on L)", 800, 600)
-        # cv.imshow("Canny Edges (on L)", edges)
-
         cv.namedWindow("Overlay", cv.WINDOW_NORMAL)
         cv.resizeWindow("Overlay", 800, 600)
-        cv.imshow("Overlay", overlay)
+        cv.imshow("Overlay", mask_overlay)
 
         cv.waitKey(1)
 
-        #show lbp with matplotlib
+        # show lbp with matplotlib
         plt.figure(figsize=(8, 6))
         plt.imshow(lbp_vis, cmap="gray")
         plt.imshow(cv.cvtColor(lbp_color, cv.COLOR_BGR2RGB))
-        plt.title("LBP (on L)")
+        plt.title("LBP (on L) with bounds in red")
         plt.show()
+
+        # patch pair rectangles (inside=red, outside=green)
+        overlay_pairs = img.copy()
+        vis_n = min(len(patch_pairs), max_pairs_vis)
+        for i in range(vis_n):
+            (x_in, y_in), (x_out, y_out), s = patch_pairs[i]
+            cv.rectangle(overlay_pairs, (x_in, y_in), (x_in + s, y_in + s), (0, 0, 255), 2)
+            cv.rectangle(overlay_pairs, (x_out, y_out), (x_out + s, y_out + s), (0, 255, 0), 2)
+            cv.putText(overlay_pairs, str(i), (x_in, max(0, y_in - 3)), cv.FONT_HERSHEY_SIMPLEX, 0.4, (0,0,255), 1, cv.LINE_AA)
+            cv.putText(overlay_pairs, str(i), (x_out, max(0, y_out - 3)), cv.FONT_HERSHEY_SIMPLEX, 0.4, (0,255,0), 1, cv.LINE_AA)                
+
+        cv.namedWindow("Patch Pairs (red=inside shadow, green=outside lit)", cv.WINDOW_NORMAL)
+        cv.resizeWindow("Patch Pairs (red=inside shadow, green=outside lit)", 1000, 750)
+        cv.imshow("Patch Pairs (red=inside shadow, green=outside lit)", overlay_pairs)
+
+        # chi-squared histogram
+        if len(chi2_list) > 0:
+            plt.figure(figsize=(8,5))
+            plt.hist(chi2_list, bins=40)
+            plt.title("LBP chi-squared distances across shadow boundary (lower = more similar)")
+            plt.xlabel("chi-squared distance")
+            plt.ylabel("count")
+            plt.tight_layout()
+            plt.show()
 
         cv.waitKey(0)
         cv.destroyAllWindows()
 
+    # features for ML
+    # return raw chi-square distances plus some simple aggregates to feed a model
+    chi2_arr = np.array(chi2_list, dtype=np.float32) if len(chi2_list) else np.array([], dtype=np.float32)
+    feature_summary = {
+        "chi2_count": int(chi2_arr.size),
+        "chi2_mean": float(np.mean(chi2_arr)) if chi2_arr.size else 0.0,
+        "chi2_std": float(np.std(chi2_arr)) if chi2_arr.size else 0.0,
+        "chi2_p25": float(np.percentile(chi2_arr, 25)) if chi2_arr.size else 0.0,
+        "chi2_p50": float(np.percentile(chi2_arr, 50)) if chi2_arr.size else 0.0,
+        "chi2_p75": float(np.percentile(chi2_arr, 75)) if chi2_arr.size else 0.0,
+    }
+
     return {
-        "mask": mask, "edges": edges, "lbp": lbp,
-        "L8": L8, "gx": gx, "gy": gy,
-        "features": features,
-        "tamper_score": float(tamper) if 'tamper' in locals() else 0.0
+        "mask": mask, 
+        "lbp": lbp,
+        "L8": L8, 
+        "chi2_distances": chi2_list,
+        "patch_pairs": patch_pairs,
+        "feature_summary": feature_summary,
+        "features": features, #optional
     }
 
 if __name__ == "__main__":
-    analyze_texture("data/images/2.jpg")
+    analyze_texture("data/images/5.jpg", visualize=True)
