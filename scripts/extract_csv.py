@@ -5,7 +5,8 @@ import os, csv, sys, argparse, glob, traceback
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 try:
-    from texture import analyze_image
+    from texture import analyze_texture
+    from lighting import analyze_lighting
 except Exception as e:
     print("[extract] Could not import texture.analyze_image:", e)
     traceback.print_exc()
@@ -64,7 +65,7 @@ def main():
     for i, path in enumerate(files, 1):
         fname = os.path.basename(path)
         try:
-            res = analyze_image(path, visualize=False)   # <- no GUI
+            res = analyze_texture(path, visualize=False)   # <- no GUI
             feats = res.get("features", {})
         except Exception as e:
             print(f"[{i}/{len(files)}] ERROR {fname}: {e}")

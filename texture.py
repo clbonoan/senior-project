@@ -4,7 +4,7 @@
 import cv2 as cv
 import numpy as np
 import matplotlib.pyplot as plt
-from features import features_from_products
+from texture_features import extract as extract_texture
 
 # ----------------------------------------------------------
 # LOCAL BINARY PATTERN (LBP) for texture analysis
@@ -516,7 +516,7 @@ def analyze_texture(image_input, visualize=True, max_pairs_vis=200):
     mask_outline = cv.morphologyEx(mask, cv.MORPH_GRADIENT, k)
 
     # convert intensity to 8-bit
-    L8 = np.uint8(np.clip(L * 255, 0, 255))
+    L8 = np.uint8(np.clip(L*255, 0, 255))
 
     # calculate gradients to find outward direction of shadow
     gx = cv.Sobel(L8, cv.CV_32F, 1, 0, ksize=3)
@@ -563,7 +563,8 @@ def analyze_texture(image_input, visualize=True, max_pairs_vis=200):
 
 
     # build feature measurements for ML training
-    features = features_from_products(
+    features = extract_texture(
+        img,
         mask = mask,
         lbp = lbp,
         L8 = L8, 

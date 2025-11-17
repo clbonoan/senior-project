@@ -5,6 +5,8 @@ import cv2 as cv
 import numpy as np
 import io, contextlib
 
+from lighting_features import extract as extract_lighting
+
 # use same shadow mask as texture.py
 from texture import make_shadow_mask as texture_make_shadow_mask
 
@@ -437,7 +439,8 @@ def features_one_shadow(
 # tamper score
 # -------------------------------------------------- 
 def calculate_light_tamper_score(
-        img_bgr,
+        img_bgr, 
+        mask,
         min_area=1200,
         expand=6,
         color_diff=0.08,
@@ -478,7 +481,7 @@ def calculate_light_tamper_score(
     # analyze each shadow
     all_features = []
     for i in range(1, num_shadows):  # 0 = background
-        print(f"\n--- Analyzing Shadow {i} ---")
+        # print(f"\n--- Analyzing Shadow {i} ---")
 
         current_shadow = (labels == i)
         features = features_one_shadow(
@@ -500,17 +503,17 @@ def calculate_light_tamper_score(
         print(f"Found {int(num_shadows-1)} shadows, only {len(all_features)} usable. Need at least 2")
         return 0.0  # not enough shadows to compare
 
-    print(f"\n{'='*60}")
-    print(f"FEATURE COMPARISON PHASE")
-    print(f"{'='*60}")
+    # print(f"\n{'='*60}")
+    # print(f"FEATURE COMPARISON PHASE")
+    # print(f"{'='*60}")
 
     # if correlation coeff r is not close to 1, suspect tampering
     # num_shadows x 4 feature matrix
     feature_matrix = np.vstack(all_features)
-    print(f"\nFeature matrix shape: {feature_matrix.shape} (rows=shadows, cols=features)")
-    print(f"Feature matrix:")
-    for idx, feat_row in enumerate(feature_matrix):
-        print(f"  Shadow {idx+1}: {feat_row}")
+    # print(f"\nFeature matrix shape: {feature_matrix.shape} (rows=shadows, cols=features)")
+    # print(f"Feature matrix:")
+    # for idx, feat_row in enumerate(feature_matrix):
+    #     print(f"  Shadow {idx+1}: {feat_row}")
     
     # normalize each feature using robust stats with a modified z-score
     # median and median absolute deviation (MAD) instead of the mean and standard deviation
@@ -522,24 +525,24 @@ def calculate_light_tamper_score(
     # z-score per feature to normalize values so big values don't outweigh small values
     normalized = (feature_matrix - medians) / scale   
 
-    print(f"\nMedians across all shadows: {medians}")
-    print(f"MAD (median absolute deviation): {mad}")
-    print(f"Scale factors: {scale}")
-    print(f"\nNormalized features:")
-    for idx, norm_row in enumerate(normalized):
-        print(f"  Shadow {idx+1}: {norm_row}")
+    # print(f"\nMedians across all shadows: {medians}")
+    # print(f"MAD (median absolute deviation): {mad}")
+    # print(f"Scale factors: {scale}")
+    # print(f"\nNormalized features:")
+    # for idx, norm_row in enumerate(normalized):
+    #     print(f"  Shadow {idx+1}: {norm_row}")
 
     # calculate distances between all pairs
     num = normalized.shape[0]
     distances = []
-    print(f"\n{'='*60}")
-    print(f"PAIRWISE DISTANCE CALCULATIONS")
-    print(f"{'='*60}")
+    # print(f"\n{'='*60}")
+    # print(f"PAIRWISE DISTANCE CALCULATIONS")
+    # print(f"{'='*60}")
     for i in range(num):
         for j in range(i+1, num):
             dist = np.linalg.norm(normalized[i] - normalized[j])
             distances.append(dist)
-            print(f"Distance between Shadow {i+1} and Shadow {j+1}: {dist:.4f}")
+            # print(f"Distance between Shadow {i+1} and Shadow {j+1}: {dist:.4f}")
 
     if len(distances) == 0:
         return 0.0
@@ -556,11 +559,11 @@ def calculate_light_tamper_score(
     distances = np.array(distances)
     median_distance = float(np.median(distances))
 
-    print(f"\n{'='*60}")
-    print(f"TAMPER SCORE CALCULATION")
-    print(f"{'='*60}")
-    print(f"All distances: {distances}")
-    print(f"Median distance: {median_distance:.4f}")
+    # print(f"\n{'='*60}")
+    # print(f"TAMPER SCORE CALCULATION")
+    # print(f"{'='*60}")
+    # print(f"All distances: {distances}")
+    # print(f"Median distance: {median_distance:.4f}")
 
     # normalize distance to [0,1] score
     # lower median distance -> lower score (more consistent)
@@ -568,26 +571,37 @@ def calculate_light_tamper_score(
 
     print(f"Median distance: {median_distance:.3f}, Tamper score: {score:.3f}")
 
-    print(f"\nFormula: score = 1 - exp(-median_distance / 2.0)")
-    print(f"         score = 1 - exp(-{median_distance:.4f} / 2.0)")
-    print(f"         score = 1 - exp({-median_distance/2.0:.4f})")
-    print(f"         score = 1 - {np.exp(-median_distance/2.0):.4f}")
-    print(f"         score = {score:.4f}")
+    # print(f"\nFormula: score = 1 - exp(-median_distance / 2.0)")
+    # print(f"         score = 1 - exp(-{median_distance:.4f} / 2.0)")
+    # print(f"         score = 1 - exp({-median_distance/2.0:.4f})")
+    # print(f"         score = 1 - {np.exp(-median_distance/2.0):.4f}")
+    # print(f"         score = {score:.4f}")
     
-    print(f"\n{'='*60}")
-    print(f"SUMMARY")
-    print(f"{'='*60}")
+    # print(f"\n{'='*60}")
+    # print(f"SUMMARY")
+    # print(f"{'='*60}")
     print(f"Found {int(num_shadows-1)} shadows, {len(all_features)} usable")
     print(f"Final Tamper Score: {score:.4f}")
-    if score < 0.4:
-        print(f"Interpretation: CONSISTENT lighting (likely real)")
-    elif score < 0.7:
-        print(f"Interpretation: MODERATE inconsistency (suspicious)")
-    else:
-        print(f"Interpretation: HIGH inconsistency (likely tampered)")
-    print(f"{'='*60}\n")
+    # if score < 0.4:
+    #     print(f"Interpretation: CONSISTENT lighting (likely real)")
+    # elif score < 0.7:
+    #     print(f"Interpretation: MODERATE inconsistency (suspicious)")
+    # else:
+    #     print(f"Interpretation: HIGH inconsistency (likely tampered)")
+    # print(f"{'='*60}\n")
 
-    return score    
+    # build feature measurements for ML training
+    light_features = extract_lighting(
+        img_bgr,
+        mask,
+        min_area,
+        expand,
+        color_diff,
+        darkest_frac,
+        shrink,
+    )
+
+    return score, light_features    
 
 # ---------------------------------------------------
 # CHOOSING IMAGE 
@@ -604,14 +618,14 @@ def analyze_lighting(image_path, show_debug=False):
     else:
         None
 
-    score = calculate_light_tamper_score(img, debug=show_debug, viz=viz)
+    score, light_features = calculate_light_tamper_score(img, debug=show_debug, viz=viz)
 
     print(f"{score:.4f}")
 
     if show_debug and viz is not None:
         viz.show_all(cols=3, size=(600, 500))
 
-    return score    
+    return score
 
 if __name__ == "__main__":
     analyze_lighting("data/images/5.jpg", show_debug=True)

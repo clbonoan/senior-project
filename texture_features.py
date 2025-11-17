@@ -1,4 +1,4 @@
-# features.py for feature extraction
+# texture_features.py for texture feature extraction
 import numpy as np
 import cv2 as cv
 
@@ -25,10 +25,6 @@ def lbp_entropy_np(lbp, region=None):
     hist = hist + 1e-12
     return float(-np.sum(hist * np.log(hist)))
 
-# def edge_overlap_fraction(edges, boundary_mask):
-#     e = (edges > 0)
-#     b = (boundary_mask > 0)
-#     return float((e & b).sum()/b.sum()) if b.sum() else 0.0
 
 def component_stats_min(mask):
     # return only num_shadow_components, comp_area_p90, comp_peri2_over_area_p50
@@ -67,8 +63,31 @@ def angular_variance_min(gx, gy, boundary_mask, eps=1e-6):
     ang_std = float(np.sqrt(-2 * np.log(R + eps)))
     return {"normal_angle_std": ang_std, "normal_mrl": R}
 
+# local intermediates in case they were not passed
+def to_L8(img_bgr):
+    # uint8 luminance proxy (keep simple; lighting module can use linear space separately)
+    return cv.cvtColor(img_bgr, cv.COLOR_BGR2GRAY)
+
+def sobel_xy(L8):
+    gx = cv.Sobel(L8, cv.CV_32F, 1, 0, ksize=3)
+    gy = cv.Sobel(L8, cv.CV_32F, 0, 1, ksize=3)
+    return gx, gy
+
+def boundary_from_mask(mask):
+    se = cv.getStructuringElement(cv.MORPH_ELLIPSE, (3, 3))
+    return cv.morphologyEx(mask, cv.MORPH_GRADIENT, se)
+
 # main: minimal strong baseline
-def features_from_products(mask, lbp, L8, gx, gy, chi2_list):
+def extract(
+    img_bgr, 
+    *, 
+    mask, 
+    lbp, 
+    L8, 
+    gx, 
+    gy, 
+    chi2_list
+) -> dict:
     '''
     to build feature vector:
     - mask (uint8 0/255),
@@ -79,25 +98,27 @@ def features_from_products(mask, lbp, L8, gx, gy, chi2_list):
     expected inputs: intermediates from texture.py and per-boundary sample arrays
     '''
 
+    feats = {}
+
+    if L8 is None:
+        L8 = to_L8(img_bgr)
+    if gx is None or gy is None:
+        gx, gy = sobel_xy(L8)
+
     # boundary and masks
-    boundary = cv.morphologyEx(
-        mask, cv.MORPH_GRADIENT, cv.getStructuringElement(cv.MORPH_ELLIPSE, (3, 3))
-    )
+    mask = mask.astype(np.uint8)
+    boundary = boundary_from_mask(mask)
+
     in_m = mask > 0
     out_m = ~in_m
 
-    feats = {}
-
-    # coverage / edges 
+    # coverage/edges 
     '''
     mask_frac = how much of the image is covered by a detected shadow
     boundary_frac = how long or detailed the shadow edge is compared to the whole image
     '''
     feats["mask_frac"] = float(in_m.mean())
     feats["boundary_frac"] = float((boundary > 0).mean())
-    #feats["edge_density_all"] = float((edges > 0).mean())
-    #feats["edge_density_shadow"] = float((edges[in_m] > 0).mean()) if in_m.any() else 0.0
-    #feats["edge_on_boundary_frac"] = _edge_overlap_fraction(edges, boundary)
 
     # luminance contrast (means/stds only)
     '''
@@ -111,13 +132,13 @@ def features_from_products(mask, lbp, L8, gx, gy, chi2_list):
     if in_m.any():
         mu_in, sd_in = mean_std(L8[in_m])
     else:
-        np.array([0.0])
+        mu_in, sd_in = 0.0, 0.0
     if out_m.any():
         mu_out, sd_out = mean_std(L8[out_m])
     else:
-        np.array([0.0])    
-    #mu_in, sd_in = mean_std(L8[in_m] if in_m.any() else np.array([0.0]))
-    #mu_out, sd_out = mean_std(L8[out_m] if out_m.any() else np.array([0.0]))
+        mu_out, sd_out = 0.0, 0.0 
+
+
     feats["L_in_mean"] = mu_in
     feats["L_in_std"]  = sd_in
     feats["L_out_mean"] = mu_out
