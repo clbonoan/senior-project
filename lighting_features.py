@@ -116,7 +116,7 @@ def extract(
     if L is None:
         L = get_brightness(img_bgr)  # float32, ~[0..1] linear Y
     if gx is None or gy is None:
-        gx, gy = _sobel_xy(L)
+        gx, gy = sobel_xy(L)
 
     # scene-level context
     Lv = L[np.isfinite(L)]

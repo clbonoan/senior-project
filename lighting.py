@@ -593,12 +593,12 @@ def calculate_light_tamper_score(
     # build feature measurements for ML training
     light_features = extract_lighting(
         img_bgr,
-        mask,
-        min_area,
-        expand,
-        color_diff,
-        darkest_frac,
-        shrink,
+        mask=mask,
+        min_area=min_area,
+        expand=expand,
+        color_diff=color_diff,
+        darkest_frac=darkest_frac,
+        shrink=shrink,
     )
 
     return score, light_features    
@@ -618,7 +618,9 @@ def analyze_lighting(image_path, show_debug=False):
     else:
         None
 
-    score, light_features = calculate_light_tamper_score(img, debug=show_debug, viz=viz)
+    mask = mask_from_texture(img)
+
+    score, light_features = calculate_light_tamper_score(img, mask, debug=show_debug, viz=viz)
 
     print(f"{score:.4f}")
 
