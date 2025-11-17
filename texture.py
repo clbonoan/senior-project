@@ -1,16 +1,22 @@
-# combines canny edge detection, local binary pattern (LBP), and shadow mask
-# for texture analysis (first feature)
+# First Feature: edge detection and texture analysis
+# Detects shadows in images and compares textures inside and outside shadows
 
 import cv2 as cv
 import numpy as np
 import matplotlib.pyplot as plt
 from features import features_from_products
 
-# ========================================================
-# LOCAL BINARY PATTERN
-# =========================================================
-# comparing texture to describe how pixel intensity changes around a central pixel
+# ----------------------------------------------------------
+# LOCAL BINARY PATTERN (LBP) for texture analysis
+# ----------------------------------------------------------
+'''
+look at each pixel and compare it to its 8 neighbors (top, bottom, left, right, diagonals);
+if its neighbor is brighter, it is marked as 1, if darker then 0;
+a binary pattern is created to describe the texture around a pixel
+'''
+
 def get_pixel(img, center, x, y):
+    # check if neighbor pixels are brighter than the center pixel
     new_value = 0
 
     try:
@@ -18,39 +24,38 @@ def get_pixel(img, center, x, y):
         if img[x][y] >= center:
             new_value = 1
     except:
-        # exception where neighbor value of center pixel may not exist
-        # i.e., values present at boundaries
+        # return 0 if the pixel is at the edge of the image
         pass
 
     return new_value
 
-# calculate lbp
 def lbp_calculated_pixel(img, x, y): 
+    # calculating LBP value for a single pixel by comparing it to 8 neighbors
     center = img[x][y]
 
-    # create array of pixels
-    val_ar = []
-    val_ar.append(get_pixel(img, center, x-1, y-1)) # top left
-    val_ar.append(get_pixel(img, center, x-1, y))   # top
-    val_ar.append(get_pixel(img, center, x-1, y+1))  # top right
-    val_ar.append(get_pixel(img, center, x, y+1))    # right
-    val_ar.append(get_pixel(img, center, x+1, y+1))   # bottom right
-    val_ar.append(get_pixel(img, center, x+1, y))    # bottom
-    val_ar.append(get_pixel(img, center, x+1, y-1))    # bottom left
-    val_ar.append(get_pixel(img, center, x, y-1))    # left
+    # create array of pixels based on the 8 neighbors
+    val_arr = []
+    val_arr.append(get_pixel(img, center, x-1, y-1)) # top left
+    val_arr.append(get_pixel(img, center, x-1, y))   # top
+    val_arr.append(get_pixel(img, center, x-1, y+1))  # top right
+    val_arr.append(get_pixel(img, center, x, y+1))    # right
+    val_arr.append(get_pixel(img, center, x+1, y+1))   # bottom right
+    val_arr.append(get_pixel(img, center, x+1, y))    # bottom
+    val_arr.append(get_pixel(img, center, x+1, y-1))    # bottom left
+    val_arr.append(get_pixel(img, center, x, y-1))    # left
     
-    # convert binary values to decimal
+    # convert binary pattern values to decimal
     power_val = [1, 2, 4, 8, 16, 32, 64, 128]    
     val = 0
-
-    for i in range(len(val_ar)):
-        val += val_ar[i] * power_val[i]
+    for i in range(len(val_arr)):
+        val += val_arr[i] * power_val[i]
     return val
 
 def lbp_map(gray):
-    # turning the image into grayscale and applying LBP to it
+    # creating an LBP map for the image after turning it to grayscale
     height,width = gray.shape
     out = np.zeros((height,width), np.uint8)
+
     for i in range(height):
         for j in range(width):
             out[i,j] = lbp_calculated_pixel(gray, i, j)
@@ -66,19 +71,22 @@ def lbp_hist(patch):
 # SHADOW MASK HELPERS
 # ----------------------------------------------------------
 def box_mean(arr, k):
-    # using box filter to replace each pixel's value with average of neighboring pixels
-    # good for reducing noise
+    # calculating the average of neighboring pixels with box filter
+    # good for reducing noise since it smooths
     return cv.boxFilter(arr, ddepth =- 1, ksize = (k, k), normalize = True)
 
 def remove_small(mask, min_area = 800):
-    # remove small connected white noise from the binary mask
+    # remove small noisy regions from the mask
     num, labels, stats, _ = cv.connectedComponentsWithStats(mask, connectivity = 8)
     keep = np.zeros_like(mask)
+    
     # background is labeled 0
+    # keep only the large regions
     for i in range(1, num):
         # use the total area (# of pixels) of the component
         if stats[i, cv.CC_STAT_AREA] >= min_area:
             keep[labels == i] = 255
+
     return keep
 
 # RGB to HSI conversion
@@ -103,34 +111,45 @@ def bgr_to_hsi(img_bgr):
     return H, S, I
 
 def srgb_to_linear(x8):
-    # x in [0,1], sRGB -> linear
-    x = x8.astype(np.float32) / 255.0
+    # convert the sRGB color space to linear space for better shadow detection 
+    # sRGB is for visual/display, linear for math operations
+    x = x8.astype(np.float32) / 255.0       # x in [0,1], sRGB -> linear
     a = 0.055
     return np.where(x <= 0.04045, x/12.92, ((x + a)/(1 + a))**2.4)
 
 def normalized_rgb(img_bgr):
+    # normalize the RGB channels to help identify shadows through color consistency
     b, g, r = cv.split(img_bgr.astype(np.float32))
+
     # calculate sum of pixel values
     # total light intensity (similar to luminance) at each pixel location
-    s = r + g + b + 1e-6
-    return r/s, g/s     # chroma ratios red and green since they are more stable than blue channel
+    sum = r + g + b + 1e-6
+    return r/sum, g/sum     # chroma ratios red and green since they are more stable than blue channel
 
 def bgr_to_hsi_linear(img_bgr):
-    # compute H,S,I in linear luminance
+    # convert BGR to HSI color space (hue, saturation, intensity)
     # this is important to adjust brightness without affecting shadow's hue or saturation
     B, G, R = cv.split(img_bgr.astype(np.float32) / 255.0)
-    Rl, Gl, Bl = srgb_to_linear(R), srgb_to_linear(G), srgb_to_linear(B)
+
+    # convert to linear space for calculations
+    Rl = srgb_to_linear(R)
+    Gl = srgb_to_linear(G)
+    Bl = srgb_to_linear(B)
+
+    # calculate the intensity (the average of rgb)
     I = (Rl + Gl + Bl) / 3.0
+
+    # calculate the saturation (how colorful vs how gray)
     min_rgb = np.minimum(np.minimum(Rl, Gl), Bl)
     S = np.where(I > 1e-6, 1.0 - (min_rgb / (I + 1e-6)), 0.0)
 
-    # hue not used; return a dummy H to keep signature the same
+    # hue not used since hue is not used in shadow detection 
     H = np.zeros_like(I, dtype=np.float32)
     return H, S, I
 
-# ------------------------------------------------------------
+# ----------------------------------------------------------
 # SHADOW MASK
-# ------------------------------------------------------------
+# ----------------------------------------------------------
 # mask to further distinguish shadows
 def make_shadow_mask(
     img_bgr,
@@ -143,74 +162,70 @@ def make_shadow_mask(
     min_area = 400,
 ): 
     '''
-    based on paper by Uddin, Khanam, Khan, Deb, and Jo detailing color models HSI and YCbCr
+    based on paper by Uddin, Khanam, Khan, Deb, and Jo detailing color models HSI and YCbCr:
     1. chromatic attainment on S: Im = S - log(S + delta)
     2. intensity attainment: I' = I + beta * Y    (Y is from YCrCb color model)
     3. shadow if I' is highly saturated and S' (boosted) is low
+    SUMMARY: shadow are dark regions that
+    - have low saturation
+    - stay dark after brightness is adjusted
+    - maintain consistent color but just get darker
     '''
-    
-    # HSV for saturation and intensity (V (value) is used for intensity)
-    #hsv = cv.cvtColor(img_bgr, cv.COLOR_BGR2HSV).astype(np.float32)
-    #H, S, V = cv.split(hsv)
-    #Sn = S / 255.0
-    #In = V / 255.0
 
 
     # convert BGR to HSI in linear light (hue, saturation, intensity)
     _, S, I = bgr_to_hsi_linear(img_bgr)
 
-    # multi-scale local darkness region of interest (ROI)
+    # find dark regions (regions of interest) using multiple window sizes
     meanI = [box_mean(I, w) for w in win_scales]
     darks = [(I < (kk * m)) for m, kk in zip(meanI, k_dark)]
     roi_dark = darks[0] | darks[1] | darks[2]
+    
     if not np.any(roi_dark):
         print("roi_dark is empty → returning empty mask.")
         return np.zeros(I.shape, np.uint8), (I * 255).astype(np.float32)
     
     # chromatic attainment (1) 
     # Sm = S - np.log(S + delta)
-    # SKIPPED chromatic attainment; used raw saturation with thresholds instead
-    # since shadows typically have low saturation in the image 
+    # SKIPPED chromatic attainment; used raw saturation with thresholds instead since shadows typically have low saturation in the image 
 
-    # get Y channel from YCrCb for intensity attainment
-    B, G, R = cv.split(srgb_to_linear(img_bgr))
-    # common approximation to convert RGB to linear luminance
+    # boost intensity using luminance (Y channel from YCrCb)
+    # B, G, R = cv.split(srgb_to_linear(img_bgr))
+    B, G, R = cv.split(img_bgr.astype(np.float32) / 255.0)
+    Rl = srgb_to_linear(R * 255) / 255.0
+    Gl = srgb_to_linear(G * 255) / 255.0
+    Bl = srgb_to_linear(B * 255) / 255.0
+    
+    # common approximation to convert RGB to linear luminance (how bright each pixel appears to human eye)
     # coefficients (0.114, 0.587, 0.299) are based on sensitivity of the human eye to diff light wavelengths
-    Y_lin = 0.114*B + 0.587*G + 0.299*R
+    Y_lin = 0.114*Bl + 0.587*Gl + 0.299*Rl
     Iprime_raw = I + beta * Y_lin
 
-    # normalize I' by a high percentile inside dark region of interest (adaptive to scene/image)
+    # normalize the boosted intensity I' by a high percentile inside dark region of interest (adaptive to scene/image)
     scale = float(np.percentile(Iprime_raw[roi_dark], 95))
     Iprime = np.clip(Iprime_raw / max(scale, 1e-6), 0.0, 1.0)
 
-    # chroma-consistency (checked since shadows dim but do not change color)
+    # check chroma-consistency (checked since shadows dim/get darker but do not change color)
     nr, ng = normalized_rgb(img_bgr)
     mnr = box_mean(nr, 41)  # mean of normalized r
     mng = box_mean(ng, 41)  # mean of normalized g
     chroma_ok = (np.abs(nr - mnr) < dr) & (np.abs(ng - mng) < dg)
 
-    # self-tuning thresholds from region of interest percentiles
+    # self-tuning thresholds (saturation and intensity) from region of interest percentiles
     S_thr = float(min(0.30, np.percentile(S[roi_dark], 40) + 0.02))
     Ip_thr = float(np.percentile(Iprime[roi_dark], 60))
 
     '''
-    constraints for shadow mask based on if I' = 255 & S about 0
-    to make it adaptive to all images, shadows have:
+    constraints for shadow mask based on if I' = 255 & S about 0;
+    to make it adaptive to all images, a pixel is considered a shadow if it has:
     - low saturation (S below given threshold)
-    - low intensity even after intensity boost (I' < I_threshold) -> shadows stay dark
-    - were already dark before intensity boost (roi_dark) -> must start dark
-    - shadows do not change color even after boost (chroma_ok)
+    - low intensity even after intensity boost (I' < I_threshold) -> (shadows stay dark after boost)
+    - were already dark before intensity boost (roi_dark) -> (dark to begin with)
+    - shadows do not change color even after boost (chroma_ok) -> (consistent color)
     '''
     mask = (roi_dark & chroma_ok & (S <= S_thr) & (Iprime <= Ip_thr)).astype(np.uint8) * 255
 
-    # refine to put weak edges at boundaries
-    # L8 = (I * 255).astype(np.uint8)
-    # edges = cv.Canny(L8, 50, 150)
-    # outline = cv.morphologyEx(mask, cv.MORPH_GRADIENT, cv.getStructuringElement(cv.MORPH_ELLIPSE, (3,3)))
-    # snap = cv.bitwise_and(outline, cv.dilate(edges, cv.getStructuringElement(cv.MORPH_RECT, (3,3)), 1))
-    # mask = cv.bitwise_or(mask, snap)
-
-    # use morphological image processing to remove specks and fill in small holes
+    # use morphological image processing to remove specks and fill in small holes (cleaning up the mask)
     if morph_open > 1:
         k1 = cv.getStructuringElement(cv.MORPH_ELLIPSE, (morph_open, morph_open))
         mask = cv.morphologyEx(mask, cv.MORPH_OPEN, k1)
@@ -219,73 +234,262 @@ def make_shadow_mask(
         mask = cv.morphologyEx(mask, cv.MORPH_CLOSE, k2)
     mask = remove_small(mask, min_area=min_area)
     
-    # return mask and luminance channel to reuse (V)
+    # return mask and luminance channel to reuse (considered V in paper)
     return mask, (I * 255).astype(np.float32)
 
-# ---------------------------------------------------------
-# Texture Comparison and Helpers
-# Compare texture across shadow boundaries
-# ---------------------------------------------------------
+# ----------------------------------------------------------
+# TAMPER SCORE CALCULATION
+# ----------------------------------------------------------
+def calculate_tamper_score(chi2_list, mask, L8):
+    '''
+    tamper score between 0 to 1 based on texture comparisons of each pair of patches for each shadow component:
+    0.0 = likely real shadows (textures match)
+    0.1 = likely fake shadows (textures are very different)
+
+    considering:
+    - how different the textures are (chi-squared distances for similarity)
+    - how many suspicious shadow regions there are
+    - consistency across all shadows
+    '''
+
+    if len(chi2_list) == 0:
+        return 0.0  # no shadows are found so assume real
+    
+    chi2_arr = np.array(chi2_list)
+
+    # thresholds
+    LOW_THRESHOLD = 0.10   # similar texture
+    HIGH_THRESHOLD = 0.30   # very different texture
+
+    # average texture difference for first score component
+    mean_chi2 = float(np.mean(chi2_arr))
+    if mean_chi2 <= LOW_THRESHOLD:
+        score_mean = 0.0
+    elif mean_chi2 >= HIGH_THRESHOLD:
+        score_mean = 1.0
+    else:
+        # linear interpolation if mean is between thresholds
+        score_mean = (mean_chi2 - LOW_THRESHOLD) / (HIGH_THRESHOLD - LOW_THRESHOLD)
+
+    # max difference (worst case) for second score component
+    # flag if even one shadow is very suspicious
+    max_chi2 = float(np.max(chi2_arr))
+    if max_chi2 <= LOW_THRESHOLD:
+        score_max = 0.0
+    elif max_chi2 >= HIGH_THRESHOLD:
+        score_max = 1.0
+    else:
+        score_max = (max_chi2 - LOW_THRESHOLD) / (HIGH_THRESHOLD - LOW_THRESHOLD)
+
+    # consistency of values for third score component
+    # real shadows should have similar values
+    # fake shadows might have mixed results (some match, some don't)
+    std_chi2 = float(np.std(chi2_arr))
+    if std_chi2 > 0.1:
+        score_consistency = 0.3  # penalty for inconsistency
+    else:
+        score_consistency = 0.0
+    
+    # percentage of suspicious shadows for fourth score component
+    # count how many shadows exceed the high threshold
+    num_suspicious = int(np.sum(chi2_arr > HIGH_THRESHOLD))
+    pct_suspicious = num_suspicious / len(chi2_arr)
+    score_percentage = pct_suspicious
+    
+    # combine all components with weights
+    # mean is most important, max catches extreme cases
+    tamper_score = (
+        0.40 * score_mean +        # average behavior
+        0.30 * score_max +         # worst case
+        0.15 * score_consistency + # how consistent
+        0.15 * score_percentage    # how many are bad
+    )
+    
+    # clamp score to [0, 1]
+    tamper_score = max(0.0, min(1.0, tamper_score))
+    
+    return tamper_score        
+
+# ----------------------------------------------------------
+# TEXTURE COMPARISON AND HELPERS FOR TAMPER SCORE
+# compare texture between shadow patches and nearby lit patches
+# ----------------------------------------------------------
 def chi2(a, b, eps=1e-9):
     # chi-squared distance between two histograms (measuring texture simularity)
     d = (a - b)
     s = (a + b) + eps
     return 0.5 * np.sum((d * d) / s)
 
-# helper functions for the tamper score (0...1)
-def clamp01(x):
-    # clamp a float value between 0 and 1
-    return max(0.0, min(1.0, float(x)))
+# # helper functions for the tamper score (0...1)
+# def clamp01(x):
+#     # clamp a float value between 0 and 1
+#     return max(0.0, min(1.0, float(x)))
 
-def contrast_norm(mean_in, mean_out, eps=1e-6):
-    # how much darker the inside is vs outside; normalized
-    return clamp01((mean_out - mean_in) / (mean_out + eps))
+# def contrast_norm(mean_in, mean_out, eps=1e-6):
+#     # how much darker the inside is vs outside; normalized
+#     return clamp01((mean_out - mean_in) / (mean_out + eps))
 
-def map_to_01(x, lo, hi):
-    # map x linearly from [lo,hi] to [0,1]
-    if hi <= lo:
-        return 0.0
-    # interpolate
-    y = (x - lo) / (hi - lo)
-    # clip 
-    return max(0.0, min(1.0, y))
+# def map_to_01(x, lo, hi):
+#     # map x linearly from [lo,hi] to [0,1]
+#     if hi <= lo:
+#         return 0.0
+#     # interpolate
+#     y = (x - lo) / (hi - lo)
+#     # clip 
+#     return max(0.0, min(1.0, y))
 
-# return patches and top-left coordinates so they can be drawn
-def sample_patches(img2d, y, x, ny, nx, size=21, offset=6):
-    # extract two small patches:
-    # - one inside the shadow (darker side)
-    # - one outside (brighter side)
-    # offset: how far from the boundary to sample
-    # size: patch width/height in pixels
-    
-    h, w = img2d.shape
-    s = size // 2
+def pairs_one_per_component(
+    mask_u8, L8, lbp, gx, gy,
+    min_area=300,            # keep consistent with your mask cleanup
+    patch_size=25, in_offset=6, out_offset=9, max_step=30
+):
+    '''
+    for each connected shadow component in mask_u8, pick one pair of patches to compare:
+      - inside patch: near boundary but inside (stable, not on edge)
+      - outside patch: just outside the boundary in the lit area
+    return:
+      chi2_list (distances): list[float]
+      patch_pairs: [((x_in,y_in),(x_out,y_out), size)]
+    '''
+    h, w = L8.shape
+    s = patch_size // 2
+    chi2_list, patch_pairs = [], []
 
-    # move along the edge normal (ny,nx) in both directions
-    yi_in  = int(np.clip(y - offset*ny, 0, img2d.shape[0]-1))
-    xi_in  = int(np.clip(x - offset*nx, 0, img2d.shape[1]-1))
-    yi_out = int(np.clip(y + offset*ny, 0, img2d.shape[0]-1))
-    xi_out = int(np.clip(x + offset*nx, 0, img2d.shape[1]-1))
+    # find all separate shadow components/regions
+    num, labels, stats, _ = cv.connectedComponentsWithStats(mask_u8, connectivity=8)
+    k3 = cv.getStructuringElement(cv.MORPH_ELLIPSE, (3, 3))
 
-    def clamp(v, lo, hi): return max(lo, min(hi, v))
+    def in_bounds(y, x):
+        # check if patch fits in image
+        return (y - s) >= 0 and (x - s) >= 0 and (y + s) < h and (x + s) < w
 
-    # top-left coordinates for cropping patches
-    y0_in  = clamp(yi_in - s, 0, h - size)
-    x0_in  = clamp(xi_in - s, 0, w - size)
-    y0_out = clamp(yi_out - s, 0, h - size)
-    x0_out = clamp(xi_out - s, 0, w - size)
+    def crop(img, y, x):
+        # extract patch from image
+        return img[y - s:y + s + 1, x - s:x + s + 1]
 
-    pin  = img2d[y0_in:y0_in+size, x0_in:x0_in+size]
-    pout = img2d[y0_out:y0_out+size, x0_out:x0_out+size]
-    return pin, pout, (x0_in, y0_in), (x0_out, y0_out)
+    # go through each shadow region
+    for i in range(1, num):  # 0 is background
+        area = stats[i, cv.CC_STAT_AREA]
+        # skip small regions
+        if area < min_area:
+            continue
 
-# ---------------------------------------------------------
-# choosing image
-# ---------------------------------------------------------
+        # grab shadow component    
+        comp = (labels == i).astype(np.uint8) * 255
+        boundary = cv.morphologyEx(comp, cv.MORPH_GRADIENT, k3)
+        
+        if boundary.sum() == 0:
+            continue
+
+        # find a good point inside the shadow that is far from edges
+        dist = cv.distanceTransform((comp > 0).astype(np.uint8), cv.DIST_L2, 5)
+        yi_in, xi_in = np.unravel_index(np.argmax(dist), dist.shape)
+        yi_in = int(np.clip(yi_in, s, h - s - 1))
+        xi_in = int(np.clip(xi_in, s, w - s - 1))
+        
+        if not in_bounds(yi_in, xi_in):
+            continue
+
+        # find the closest boundary point
+        by, bx = np.where(boundary > 0)
+        # calculate the squared euclidean distance between a boundary point with coords bx, by and each point ->
+        # in a set of points with coords xi_in, yi_in;
+        # the index of the point with closest distance to bx, by is assigned to j
+        j = int(np.argmin((by - yi_in)**2 + (bx - xi_in)**2))
+        yb, xb = int(by[j]), int(bx[j])
+
+        # find out which direction is outward (going toward lit area)
+        g = np.array([gx[yb, xb], gy[yb, xb]], dtype=np.float32)
+        nrm = float(np.linalg.norm(g))
+
+        if nrm > 1e-3:
+            # gradient direction
+            nx, ny = g[0] / nrm, g[1] / nrm
+        else:
+            # use direction from center to boundary
+            M = cv.moments(comp, binaryImage=True)
+            # total area in shadow; if area is 0 (empty shadow), use bound point as center
+            if abs(M["m00"]) < 1e-6:
+                cx, cy = xb, yb
+            else:
+                # calculate actual center
+                # average x = sum of all x values / num of pixels
+                cx = M["m10"] / M["m00"] 
+                cy = M["m01"] / M["m00"]
+            v = np.array([xb - cx, yb - cy], dtype=np.float32)
+            vn = np.linalg.norm(v)
+            nx, ny = (v / vn) if vn > 1e-6 else (1.0, 0.0)
+
+        # get the inside shadow patch
+        yi_samp = int(np.clip(yb - in_offset * ny, s, h - s - 1))
+        xi_samp = int(np.clip(xb - in_offset * nx, s, w - s - 1))
+        
+        if not in_bounds(yi_samp, xi_samp):
+            continue
+
+        # get the outside shadow patch
+        step = out_offset
+        yo = int(np.clip(yb + step * ny, s, h - s - 1))
+        xo = int(np.clip(xb + step * nx, s, w - s - 1))
+        
+        # keep moving outward until outside the shadow
+        while step < max_step and comp[yo, xo] > 0:
+            step += 2
+            yo = int(np.clip(yb + step * ny, s, h - s - 1))
+            xo = int(np.clip(xb + step * nx, s, w - s - 1))
+        
+        if not in_bounds(yo, xo):
+            continue
+
+        # extract patches
+        pinL = crop(L8,  yi_samp, xi_samp)
+        poutL = crop(L8,  yo, xo)
+        pinLBP = crop(lbp, yi_samp, xi_samp)
+        poutLBP = crop(lbp, yo, xo)
+
+        # make sure the inside patch is darker than outside
+        m_in = float(np.mean(pinL))
+        m_out = float(np.mean(poutL))
+
+        if m_out <= m_in:
+            # swap to keep outside brighter
+            pinL, poutL = poutL, pinL
+            pinLBP, poutLBP = poutLBP, pinLBP
+            (xi_samp, yi_samp), (xo, yo) = (xo, yo), (xi_samp, yi_samp)
+            m_in, m_out = m_out, m_in
+
+        # compare the textures with chi-squared distasnce
+        h_in,  _ = np.histogram(pinLBP.ravel(),  bins=256, range=(0, 256), density=True)
+        h_out, _ = np.histogram(poutLBP.ravel(), bins=256, range=(0, 256), density=True)
+        
+        # calculate the chi-squared distance (lower = more similar)
+        '''
+        ideal range for chi-squared distance:
+        - 0-0.2: very similar textures (likely real shadows)
+        - 0.2-0.5: moderately similar (could be real shadows with some variation)
+        - 0.5-1.0: different textures (suspicious, might be fake)
+        - >1.0: very different textures (likely fake; different materials)
+        for our detection:
+        - <0.3: likely a shadow
+        - 0.3-0.8: some texture difference and may need more investigation
+        ->0.8: likely a fake shadow
+        '''
+        d = 0.5 * np.sum(((h_in - h_out) ** 2) / (h_in + h_out + 1e-9))
+
+        chi2_list.append(float(d))
+        x0_in, y0_in = xi_samp - s, yi_samp - s
+        x0_out, y0_out = xo - s, yo - s
+        patch_pairs.append(((x0_in, y0_in), (x0_out, y0_out), patch_size))
+
+    return chi2_list, patch_pairs
+
+# ----------------------------------------------------------
+# CHOOSING THE IMAGE - MAIN ANALYSIS
+# ----------------------------------------------------------
 def analyze_texture(image_input, visualize=True, max_pairs_vis=200):
     '''
     analyze texture across shadow boundaries using LBP and return chi-square similarities
-    - highlight the exact patches inside and outside shadow that are compared
+    - highlight the pairs of patches (one pair per shadow) that are compared
     - return raw chi-square distances for ML feature engineering
     '''
     if isinstance(image_input, str):
@@ -295,119 +499,70 @@ def analyze_texture(image_input, visualize=True, max_pairs_vis=200):
 
     assert img is not None, f"Cannot read image: {image_input}"
 
-    # shadow mask
+    # detect shadows with shadow mask
     mask,L = make_shadow_mask(
         img, 
         beta = 0.8,  # trying 0.6-0.8 (street level) or 0.8-1.0 (aerial)
         win_scales = (21, 41, 81),
         k_dark = (0.92, 0.95, 0.98),
         dr=0.06, dg=0.06,
-        morph_open = 3, morph_close = 7, min_area = 300
+        morph_open = 3, 
+        morph_close = 7, 
+        min_area = 300
     )
 
-    # canny edge
-    # outline of the mask
+    # outline of the mask (shadow boundaries)
     k = cv.getStructuringElement(cv.MORPH_ELLIPSE, (3, 3))
     mask_outline = cv.morphologyEx(mask, cv.MORPH_GRADIENT, k)
-    L8 = np.uint8(np.clip(L, 0, 255))
 
-    # gradients of light to estimate boundary normal directions
+    # convert intensity to 8-bit
+    L8 = np.uint8(np.clip(L * 255, 0, 255))
+
+    # calculate gradients to find outward direction of shadow
     gx = cv.Sobel(L8, cv.CV_32F, 1, 0, ksize=3)
     gy = cv.Sobel(L8, cv.CV_32F, 0, 1, ksize=3)
 
-    # 3. lbp map
+    # make LBP texture map 
     lbp = lbp_map(L8)
     lbp_vis = cv.normalize(lbp, None, 0, 255, cv.NORM_MINMAX).astype(np.uint8)
     # outline the shadow areas (using mask boundaries)
-    lbp_color = cv.applyColorMap(lbp_vis, cv.COLORMAP_MAGMA)
+    lbp_color = cv.applyColorMap(lbp_vis, cv.COLORMAP_BONE)
     lbp_color[mask_outline > 0] = (255, 0, 0)
 
-    # tamper score based on texture consistency across shadow bounds
-    ys, xs = np.where(mask_outline > 0)              # use the mask boundary itself
-    
-    # initialize lists/vars
-    #d_list, c_list, s_arr = [], [], []
-    #d_lo, d_hi = 0.0, 1.0
-    chi2_list = []  # per-pair chi-square distances (lower = more similar)
-    patch_pairs = []    # rectangles for visualization
-    
-    valid = 0
+    # EXACTLY one pair per component
+    chi2_list, patch_pairs = pairs_one_per_component(
+        mask_u8=mask, 
+        L8=L8, 
+        lbp=lbp, 
+        gx=gx, 
+        gy=gy,
+        min_area=300, 
+        patch_size=25, 
+        in_offset=6, 
+        out_offset=9
+    )
 
-    if len(ys) == 0:
-    #     print("Tamper score: 0.00 (no boundary)")
-    # else:
-    
-        # parameters
-        patch_size   = 25
-        patch_offset = 9
-        min_contrast = 0.04       # slightly lower gate
-        #contrast_weight = 0.75
+    print("\nTexture similarity scores (chi-squared distance):")
+    print("Lower values = more similar texture = likely real shadow")
+    print("Higher values = different texture = possible fake shadow")
+    for i, d in enumerate(chi2_list, start=1):
+        print(f"  Pair {i:02d}: {d:.4f}")
 
-        step = max(1, len(ys)//1200)  # use a subsample for speed
-        
-        for idx in range(0, len(ys), step):
-            y, x = int(ys[idx]), int(xs[idx])
+    # Calculate tamper score
+    tamper_score = calculate_tamper_score(chi2_list, mask, L8)
+    print(f"\n{'='*60}")
+    print(f"TAMPER SCORE: {tamper_score:.3f}")
+    print(f"{'='*60}")
 
-            # boundary normal from luminance gradient
-            g = np.array([gx[y, x], gy[y, x]], dtype=np.float32)
-            nrm = float(np.linalg.norm(g))
-            if nrm < 1e-3:
-                continue
-            nx, ny = g[0]/nrm, g[1]/nrm
+    if tamper_score < 0.4:
+        print("Assessment: LIKELY REAL - shadows appear authentic")
+    elif tamper_score < 0.7:
+        print("Assessment: SUSPICIOUS - some inconsistencies detected")
+    else:
+        print("Assessment: LIKELY FAKE - strong evidence of manipulation")
 
-            # sample patches on L (luminance) channel and on LBP
-            pinL,  poutL, in_xy, out_xy = sample_patches(L8,  y, x, ny, nx, size=patch_size, offset=patch_offset)
-            pinLBP, poutLBP, _, _ = sample_patches(lbp, y, x, ny, nx, size=patch_size, offset=patch_offset)
-            if pinL.shape != (patch_size, patch_size) or poutL.shape != (patch_size, patch_size):
-                continue
 
-            # ensure we compare "inside (darker) vs outside (brighter)"
-            m_in, m_out = float(np.mean(pinL)), float(np.mean(poutL))
-            if m_out <= m_in:
-                # swap if orientation came out reversed or flat
-                pinL, poutL = poutL, pinL
-                pinLBP, poutLBP = poutLBP, pinLBP
-                in_xy, out_xy = out_xy, in_xy
-                m_in, m_out = m_out, m_in
-
-            # contrast gate
-            c = contrast_norm(m_in, m_out)
-            if c < min_contrast:
-                continue
-
-            # chi-squared distance between LBP histograms
-            d = chi2(lbp_hist(pinLBP), lbp_hist(poutLBP))
-
-            #d_list.append(d)
-            #c_list.append(c)
-            chi2_list.append(d)
-            patch_pairs.append((in_xy, out_xy, patch_size))
-            valid += 1
-
-        # if valid == 0:
-        #     print("Tamper score: 0.00 (no valid samples after gates)")
-        # else:
-        #     d_arr = np.array(d_list, dtype=np.float32)
-        #     c_arr = np.array(c_list, dtype=np.float32)
-
-        #     # adaptive mapping of chi-squared → [0,1]
-        #     # using 35th percentile and 85th percentile
-        #     d_lo = float(np.percentile(d_arr, 35))   # “similar” boundary
-        #     d_hi = float(np.percentile(d_arr, 85))   # “different” boundary
-        #     if d_hi <= d_lo:                          # safety
-        #         d_hi = d_lo + 1e-3
-
-        #     # map each sample to anomaly score and weight by contrast
-        #     t_arr = np.clip((d_arr - d_lo) / (d_hi - d_lo), 0.0, 1.0)
-        #     s_arr = np.clip((1.0 - contrast_weight) * t_arr +
-        #                     contrast_weight * (t_arr * c_arr), 0.0, 1.0)
-
-        #     tamper = float(np.mean(s_arr))
-        #     print(f"Valid boundary samples: {valid}")
-        #     print(f"Chi-squared percentiles: P35={d_lo:.3f}, P85={d_hi:.3f}")
-        #     print(f"Tamper score (boundary): {tamper:.2f} (0 = normal, 1 = likely tampered)")
-
-    # build feature measurements for training
+    # build feature measurements for ML training
     features = features_from_products(
         mask = mask,
         lbp = lbp,
@@ -418,7 +573,7 @@ def analyze_texture(image_input, visualize=True, max_pairs_vis=200):
     )
 
     if visualize:
-        # visualize results
+        # show shadow mask
         mask_overlay = img.copy()
         mask_overlay[mask == 255] = (0, 0, 255)  # red mask overlay
         mask_overlay = cv.addWeighted(img, 0.7, mask_overlay, 0.3, 0)
@@ -433,34 +588,40 @@ def analyze_texture(image_input, visualize=True, max_pairs_vis=200):
 
         cv.waitKey(1)
 
-        # show lbp with matplotlib
+        # show lbp map with matplotlib
         plt.figure(figsize=(8, 6))
-        plt.imshow(lbp_vis, cmap="gray")
-        plt.imshow(cv.cvtColor(lbp_color, cv.COLOR_BGR2RGB))
-        plt.title("LBP (on L) with bounds in red")
+        plt.imshow(lbp_vis, cmap='gray')
+        plt.contour(mask_outline > 0, colors='red', linewidths=0.5)
+        plt.title("LBP with bounds in red")
+        plt.show(block=False)
+        plt.pause(0.001)
         plt.show()
 
         # patch pair rectangles (inside=red, outside=green)
-        overlay_pairs = img.copy()
+        overlay_pairs = lbp_color.copy()
         vis_n = min(len(patch_pairs), max_pairs_vis)
+
         for i in range(vis_n):
             (x_in, y_in), (x_out, y_out), s = patch_pairs[i]
+            # red box = inside shadow
             cv.rectangle(overlay_pairs, (x_in, y_in), (x_in + s, y_in + s), (0, 0, 255), 2)
+            # green box = outside shadow (lit area)
             cv.rectangle(overlay_pairs, (x_out, y_out), (x_out + s, y_out + s), (0, 255, 0), 2)
+            # label pairs
             cv.putText(overlay_pairs, str(i), (x_in, max(0, y_in - 3)), cv.FONT_HERSHEY_SIMPLEX, 0.4, (0,0,255), 1, cv.LINE_AA)
             cv.putText(overlay_pairs, str(i), (x_out, max(0, y_out - 3)), cv.FONT_HERSHEY_SIMPLEX, 0.4, (0,255,0), 1, cv.LINE_AA)                
 
-        cv.namedWindow("Patch Pairs (red=inside shadow, green=outside lit)", cv.WINDOW_NORMAL)
-        cv.resizeWindow("Patch Pairs (red=inside shadow, green=outside lit)", 1000, 750)
-        cv.imshow("Patch Pairs (red=inside shadow, green=outside lit)", overlay_pairs)
+        cv.namedWindow("Comparison Patches (red=inside shadow, green=outside shadow)", cv.WINDOW_NORMAL)
+        cv.resizeWindow("Comparison Patches (red=inside shadow, green=outside shadow)", 1000, 750)
+        cv.imshow("Comparison Patches (red=inside shadow, green=outside shadow)", overlay_pairs)
 
-        # chi-squared histogram
+        # chi-squared histogram (similarity scores)
         if len(chi2_list) > 0:
             plt.figure(figsize=(8,5))
             plt.hist(chi2_list, bins=40)
-            plt.title("LBP chi-squared distances across shadow boundary (lower = more similar)")
-            plt.xlabel("chi-squared distance")
-            plt.ylabel("count")
+            plt.title("Texture Similarity Scores - LBP chi-squared distances")
+            plt.xlabel("Chi-squared distance (lower = more similar)")
+            plt.ylabel("Number of shadow regions")
             plt.tight_layout()
             plt.show()
 
@@ -486,7 +647,7 @@ def analyze_texture(image_input, visualize=True, max_pairs_vis=200):
         "chi2_distances": chi2_list,
         "patch_pairs": patch_pairs,
         "feature_summary": feature_summary,
-        "features": features, #optional
+        "features": features,
     }
 
 if __name__ == "__main__":
