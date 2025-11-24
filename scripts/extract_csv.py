@@ -7,14 +7,16 @@ sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 try:
     from texture import analyze_texture
     from lighting import analyze_lighting
+    from depth import analyze_depth
 except Exception as e:
-    print("[extract] Could not import texture.analyze_image:", e)
+    #print("[extract] Could not import texture.analyze_image:", e)
     traceback.print_exc()
     sys.exit(1)
 
 IMG_EXTS = (".jpg", ".jpeg")
 
 def load_labels(path):
+    # load labels from csv file with columns: filename, label
     lab = {}
     if not path or not os.path.exists(path):
         return lab
@@ -30,6 +32,7 @@ def load_labels(path):
     return lab
 
 def list_images(root):
+    # find all images in directory or return a single file
     if os.path.isdir(root):
         files = []
         for ext in IMG_EXTS:
@@ -39,8 +42,69 @@ def list_images(root):
         return [root]
     return []
 
+def extract_features_from_image(path, features_to_extract, verbose=False):
+    '''
+    extract features from all analysis modules
+    args:
+    - path: path to image file
+    - features_to_extract: list of feature types to extract ['texture', 'lighting', 'depth']
+    - verbose for detailed error message
+
+    return:
+    - dict: combined features from all modules (excludes rule-based tampered scores)
+    '''
+    combined_features = {}
+    errors = []
+
+    # TEXTURE FEATURES
+    if 'texture' in features_to_extract:
+        try:
+            result = analyze_texture(path, visualize=False, compute_tamper_score=False)
+            texture_features = result.get("features", {})
+
+            # prefix texture features to avoid name collisions
+            for key, val in texture_features.items():
+                combined_features[f"texture_{key}"] = val
+        except Exception as e:
+            errors.append(f"texture: {e}")
+            if verbose:
+                print(f"  [texture] Error: {e}")
+                traceback.print_exc()
+    
+    # LIGHTING FEATURES
+    if 'lighting' in features_to_extract:
+        try:
+            result = analyze_lighting(path, visualize=False, compute_tamper_score=False)
+            lighting_features = result.get("features", {})
+
+            # prefix lighting features
+            for key, val in lighting_features.items():
+                combined_features[f"lighting_{key}"] = val
+        except Exception as e:
+            errors.append(f"lighting: {e}")
+            if verbose:
+                print(f"  [lighting] Error: {e}")
+                traceback.print_exc()
+    
+    # DEPTH FEATURES
+    if 'depth' in features_to_extract:
+        try:
+            result = analyze_depth(path, visualize=False, compute_tamper_score=False)
+            depth_features = result.get("features", {})
+
+            # prefix lighting features
+            for key, val in depth_features.items():
+                combined_features[f"depth_{key}"] = val
+        except Exception as e:
+            errors.append(f"depth: {e}")
+            if verbose:
+                print(f"  [depth] Error: {e}")
+                traceback.print_exc()   
+
+    return combined_features, errors     
+
 def main():
-    ap = argparse.ArgumentParser(description="Extract features to CSV for ML.")
+    ap = argparse.ArgumentParser(description="Extract features to CSV for ML training")
     ap.add_argument("--images", required=True)
     ap.add_argument("--labels", default="")
     ap.add_argument("--out", default="data/features.csv")
