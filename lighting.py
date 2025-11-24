@@ -21,6 +21,8 @@ def mask_from_texture(img_bgr, suppress_prints=True, **kwargs):
         mask = out[0]
     else:
         mask = out
+    # make sure mask is applied to original image, not preprocessed one (do not want preprocessed image to be analyzed)
+    assert mask.shape[:2] == img_bgr.shape[:2], "Mask must align with original image"
     return mask
 
 # ----------------------------------------------------------
@@ -29,6 +31,7 @@ def mask_from_texture(img_bgr, suppress_prints=True, **kwargs):
 def srgb_to_linear(x8):
     # x in [0,1], sRGB -> linear
     x = x8.astype(np.float32) / 255.0
+    
     a = 0.055
     result = np.where(x <= 0.04045, x/12.92, ((x + a)/(1 + a))**2.4)
     return result.astype(np.float32)
@@ -354,7 +357,7 @@ def features_one_shadow(
     ys, xs = np.where(boundary > 0)
     if ys.size > 0:
         gxs, gys = gx[ys, xs].astype(np.float32), gy[ys, xs].astype(np.float32)
-        mag = np.sqrt(gxs*gys + gys*gys) + 1e-6
+        mag = np.sqrt(gxs*gxs + gys*gys) + 1e-6
         nx, ny = gxs/mag, gys/mag
         ang = np.arctan2(ny, nx)
         C, S = float(np.mean(np.cos(ang))), float(np.mean(np.sin(ang)))
@@ -588,6 +591,8 @@ def extract_features(
             ml_features[f"{name}_median"] = 0.0
             ml_features[f"{name}_iqr"] = 0.0
 
+    score = 0.0
+
     # cross-shadow consistency features for ML
     if usable >= 2:
         # num_shadows x 4 feature matrix
@@ -712,6 +717,7 @@ def analyze_lighting(image_path, show_debug=False, compute_tamper_score=True):
         viz = None
 
     mask = mask_from_texture(img)
+    assert mask.shape[:2] == img.shape[:2], "Mask must align with original image"
 
     # extract ML features
     features = extract_features(img, mask, debug=show_debug, viz=viz)
@@ -740,5 +746,5 @@ def analyze_lighting(image_path, show_debug=False, compute_tamper_score=True):
     return result
 
 if __name__ == "__main__":
-    result = analyze_lighting("data/images/17-edited.jpg", show_debug=True)
+    result = analyze_lighting("data/images/5.jpg", show_debug=True)
     print("\nExtracted features:", result["features"])
