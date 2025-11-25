@@ -26,11 +26,69 @@ def mask_from_texture(img_bgr, suppress_prints=True, **kwargs):
         mask = out
     return mask
 
+# ----------------------------------------------------------
+# HELPER FUNCTIONS FOR VISUALS
+# ----------------------------------------------------------
+def overlay_red_mask(img_bgr, mask):
+    mask_overlay = np.zeros_like(img_bgr)
+    mask_overlay[:, :, 2] = mask    # gives red channel
+    return cv.addWeighted(img_bgr, 0.7, mask_overlay, 0.3, 0)
+
+def shadow_bounds_from_mask(mask):
+    # canny edge on the shadow mask to show the boundaries
+    return cv.Canny(mask, 50, 150)
+
+def draw_points(img, pts, color, radius=2):
+    out = img.copy()
+    for (x, y) in pts:
+        cv.circle(out, (int(x), int(y)), radius, color, -1, lineType=cv.LINE_AA)
+    return out
+
+def draw_pairs(img, pairs):
+    out = img.copy()
+    for (s, o) in pairs:
+        cv.circle(out, s, 2, (0, 0, 255), -1, lineType=cv.LINE_AA)  # red shadow
+        cv.circle(out, o, 2, (0, 255, 0), -1, lineType=cv.LINE_AA)  # green object
+        cv.line(out, s, o, (255, 200, 0), 1, lineType=cv.LINE_AA)
+    return out
+
+def draw_lines_only(img, pairs):
+    out = img.copy()
+    for (s, o) in pairs:
+        cv.line(out, s, o, (0, 0, 0), 2, lineType=cv.LINE_AA)
+    return out
+
+def draw_convergence(img, pairs, intersections, estimated_light):
+    # original image size
+    out = img.copy()
+    # all pair lines
+    for (s, o) in pairs:
+        cv.line(out, s, o, (200, 200, 200), 1, lineType=cv.LINE_AA)
+    # intersections area
+    for (x, y) in intersections:
+        cv.circle(out, (int(round(x)), int(round(y))), 2, (0, 0, 255), -1, lineType=cv.LINE_AA)
+    # estimated light
+    if estimated_light is not None:
+        cv.drawMarker(out, (int(estimated_light[0]), int(estimated_light[1])),
+                      (255, 0, 255), cv.MARKER_STAR, 20, 2)
+    return out
+
+def draw_convergence_measure(img, intersections, estimated_light, avg_distance):
+    # original image size
+    out = img.copy()
+    
+    cx, cy = int(estimated_light[0]), int(estimated_light[1])
+    for (x, y) in intersections:
+        cv.circle(img, (int(round(x)), int(round(y))), 2, (0, 0, 255), -1, lineType=cv.LINE_AA)
+    # show mean radius as a circle to visualize “spread”
+    cv.circle(img, (cx, cy), int(avg_distance), (0, 0, 0), 2, lineType=cv.LINE_AA)
+    cv.drawMarker(img, (cx, cy), (255, 0, 255), cv.MARKER_CROSS, 20, 2)
+    cv.putText(img, f"avg spread - {avg_distance:.1f}px", (10, 30),
+               cv.FONT_HERSHEY_PLAIN, 0.9, (0, 0, 0), 1)
+    return img
+
+# class to show visualizations
 class DebugVisualizer:
-    '''
-    helper class for showing debug visualizations during analysis
-    (can be used to display intermediate steps)
-    '''
     def __init__(self):
         self.images = []
     
@@ -39,15 +97,18 @@ class DebugVisualizer:
     
     def show_all(self):
         for name, img in self.images:
+            cv.namedWindow(name, cv.WINDOW_NORMAL)
             cv.imshow(name, img)
+            # cv.waitKey(0)
+            # cv.destroyWindow(name)
         cv.waitKey(0)
         cv.destroyAllWindows()
 
 def find_corners(image, max_corners=50):
-    """
-    Find corner points in the image (like corners of boxes, tips of cones, etc.)
-    These are the geometrically significant points we want to use
-    """
+    '''
+    find corner points in the image (i.e., corners of boxes, tips of cones, etc.)
+    these are geometrically significant points we want to use
+    '''
     gray = cv.cvtColor(image, cv.COLOR_BGR2GRAY)
     
     # Shi-Tomasi corner detection (good quality corners)
@@ -275,7 +336,7 @@ def find_line_intersection(line1, line2):
     intersection = np.cross(line1, line2)
 
     # if the z-component is too small, lines are parallel
-    if abs(intersection[2] < 0.0000000001):
+    if abs(intersection[2]) < 0.0000000001:
         return None
     
     # convert from coords
@@ -404,6 +465,12 @@ def ransac_find_best_light_source(pairs, iterations=500, threshold=5.0):
 # ----------------------------------------------------------
 # VISUALIZATION
 # ----------------------------------------------------------
+def draw_points(img, pts, color, radius=4):
+    out = img.copy()
+    for (x, y) in pts:
+        cv.circle(out, (int(x), int(y)), radius, color, -1, lineType=cv.LINE_AA)
+    return out
+
 def draw_results(img, shadow_mask, pairs, light_source, consistency_score, inliers=None):
     output = img.copy()
     h, w = output.shape[:2]
@@ -430,8 +497,8 @@ def draw_results(img, shadow_mask, pairs, light_source, consistency_score, inlie
     if light_source is not None:
         light_x = int(light_source[0])
         light_y = int(light_source[1])
-        cv.drawMarker(output, (light_x, light_y), (255, 0, 255),
-                     markerType=cv.MARKER_STAR, markerSize=20, thickness=2)
+        cv.drawMarker(output, (light_x, light_y), (0, 0, 255),
+                     markerType=cv.MARKER_CROSS, markerSize=20, thickness=2)
     
     # add verdict text
     if consistency_score > 0.7:
@@ -443,12 +510,7 @@ def draw_results(img, shadow_mask, pairs, light_source, consistency_score, inlie
     else:
         verdict = "LIKELY FAKE"
         text_color = (0, 0, 255)
-    
-    cv.putText(output, f"Verdict: {verdict}", (10, 30),
-               cv.FONT_HERSHEY_SIMPLEX, 1, text_color, 2)
-    cv.putText(output, f"Score: {consistency_score:.2f}", (10, 65),
-               cv.FONT_HERSHEY_SIMPLEX, 0.8, text_color, 2)
-    
+        
     return output
 
 def calculate_depth_tamper_score(consistency_score, shadow_coverage, num_pairs):
@@ -466,14 +528,7 @@ def calculate_depth_tamper_score(consistency_score, shadow_coverage, num_pairs):
 
     return tamper_score
 
-def analyze_depth(image_path, use_ransac=False, show_debug=False):
-    """
-    main function: run the full analysis on an image
-    """
-    print("\n========================================")
-    print("SHADOW FORENSICS ANALYSIS")
-    print("========================================")
-    
+def analyze_depth(image_path, use_ransac=False, show_debug=False):    
     # load the image
     img = cv.imread(image_path, cv.IMREAD_COLOR)
     if img is None:
@@ -485,25 +540,48 @@ def analyze_depth(image_path, use_ransac=False, show_debug=False):
         viz = None
     
     print(f"Analyzing: {image_path}")
-    print(f"Image size: {img.shape[1]} x {img.shape[0]}")
     
+    # original image
+    if viz: 
+        viz.add_image("original img", img)
+
     # detect shadows
     shadow_mask = mask_from_texture(img)
-    shadow_pixels = np.sum(shadow_mask > 0)
+    shadow_pixels = int(np.sum(shadow_mask > 0))
     total_pixels = img.shape[0] * img.shape[1]
     shadow_coverage = shadow_pixels / total_pixels
     
+    # red mask
+    red_overlay = overlay_red_mask(img, shadow_mask)
+    if viz: 
+        viz.add_image("red mask", red_overlay)
+
     if shadow_coverage < 0.01:
         print("\nNot enough shadows in this image to analyze!")
+        if viz:
+            viz.show_all()
         return
     
+    # show shadow boundaries
+    shadow_bounds = shadow_bounds_from_mask(shadow_mask)
+    if viz: 
+        viz.add_image("shadow bounds", shadow_bounds)
+
     # find shadow-object pairs
     pairs = find_shadow_object_pairs(img, shadow_mask)
-    
     if len(pairs) < 2:
         print("\nCouldn't find enough shadow-object pairs to analyze!")
         return
     
+    # array of paired points
+    if viz:
+        viz.add_image("array of paired points", draw_pairs(img, pairs))
+
+    # lines connected shadow point to corresponding object point
+    if viz:
+        viz.add_image("lines connecting shadow point to corresponding object point",
+                         draw_lines_only(img, pairs))
+
     # estimate light source
     if use_ransac:
         # use RANSAC for robustness
@@ -514,24 +592,41 @@ def analyze_depth(image_path, use_ransac=False, show_debug=False):
         # use simple method
         light_source, consistency_score, intersections = estimate_light_source(pairs, img.shape)
         inliers = None
-        score = consistency_score
+
+    # lines converge to a point
+    if viz:
+        viz.add_image("lines converge to a point", draw_convergence(img, pairs, intersections, light_source))
+
+    # measure convergence (average distance of intersections)
+    dists = [np.hypot(x - light_source[0], y - light_source[1]) for (x, y) in intersections]
+    if dists:
+        avg_dist = float(np.mean(dists)) 
+    else:
+        return 0.0
+    
+    # measure convergence of lines
+    if viz: viz.add_image("measure convergence of lines",
+                          draw_convergence_measure(img, intersections, light_source, avg_dist))
+   
+    # final score
+    score = consistency_score
     
     # visualize results
-    result_image = draw_results(img, shadow_mask, pairs, light_source, score, inliers)
+    #result_image = draw_results(img, shadow_mask, pairs, light_source, score, inliers)
 
     # calculate final tamper score
     tamper_score = calculate_depth_tamper_score(score, shadow_coverage, len(pairs))
     
-    # show the result
-    cv.imshow("Shadow Depth Result", result_image)
-    cv.waitKey(0)
-    cv.destroyAllWindows()
+    # tamper score
+    print(f"tamper score = {tamper_score:.2f}")
+
+    # show the results
+    # cv.imshow("Shadow Depth Result", result_image)
+    # cv.waitKey(0)
+    # cv.destroyAllWindows()
     
-    # save the result
-    output_path = "forensics_result.jpg"
-    cv.imwrite(output_path, result_image)
-    print(f"\nResult saved to: {output_path}")
-    
+    if viz:
+        viz.show_all()
     # print summary
     print("\n========================================")
     print("ANALYSIS COMPLETE")
@@ -553,4 +648,4 @@ def analyze_depth(image_path, use_ransac=False, show_debug=False):
 
 # Run the analysis
 if __name__ == "__main__":
-    result = analyze_depth("data/images/17-edited.jpg", show_debug=True)
+    result = analyze_depth("data/images/15.jpg", show_debug=True)

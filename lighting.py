@@ -707,9 +707,15 @@ def calculate_light_tamper_score(ml_features):
 def analyze_lighting(image_path, show_debug=False, compute_tamper_score=True):
     # print tamper score
     # similar to texture.py
-    img = cv.imread(image_path, cv.IMREAD_COLOR)
-    if img is None:
-        raise FileNotFoundError(image_path)
+    # img = cv.imread(image_path, cv.IMREAD_COLOR)
+    # if img is None:
+    #     raise FileNotFoundError(image_path)
+    if isinstance(image_path, str):
+        img = cv.imread(image_path)
+    else:
+        img = image_path
+    
+    assert img is not None, f"Cannot read image: {image_path}"
 
     if show_debug:
         viz = DebugVisualizer()
