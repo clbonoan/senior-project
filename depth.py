@@ -8,7 +8,7 @@ import io, contextlib
 from typing import Tuple, List, Optional
 
 # use same shadow mask as texture.py
-from texture import make_shadow_mask as texture_make_shadow_mask
+from shadow_mask import final_shadow_mask
 
 def mask_from_texture(img_bgr, suppress_prints=True, **kwargs): 
     # call texture.py's make_shadow_mask function to get the shadow mask
@@ -16,9 +16,9 @@ def mask_from_texture(img_bgr, suppress_prints=True, **kwargs):
     if suppress_prints:
         sink = io.StringIO()
         with contextlib.redirect_stdout(sink):
-            out = texture_make_shadow_mask(img_bgr, **kwargs)
+            out = final_shadow_mask(img_bgr, **kwargs)
     else:
-        out = texture_make_shadow_mask(img_bgr, **kwargs)
+        out = final_shadow_mask(img_bgr, **kwargs)
 
     if isinstance(out, tuple):
         mask = out[0]
@@ -478,7 +478,7 @@ def draw_results(img, shadow_mask, pairs, light_source, consistency_score, inlie
     # overlay shadow regions in red
     mask_overlay = np.zeros_like(output)
     mask_overlay[:, :, 0] = shadow_mask  # blue channel
-    output = cv.addWeighted(img, 0.7, mask_overlay, 0.3, 0)
+    output = cv.addWeighted(img, 0.7, mask_overlay, 0.4, 0)
 
     # draw lines from shadow to object
     for idx, (shadow_pt, object_pt) in enumerate(pairs):
@@ -546,7 +546,7 @@ def analyze_depth(image_path, use_ransac=False, show_debug=False):
         viz.add_image("original img", img)
 
     # detect shadows
-    shadow_mask = mask_from_texture(img)
+    shadow_mask = final_shadow_mask(img)
     shadow_pixels = int(np.sum(shadow_mask > 0))
     total_pixels = img.shape[0] * img.shape[1]
     shadow_coverage = shadow_pixels / total_pixels
@@ -648,4 +648,4 @@ def analyze_depth(image_path, use_ransac=False, show_debug=False):
 
 # Run the analysis
 if __name__ == "__main__":
-    result = analyze_depth("data/images/15.jpg", show_debug=True)
+    result = analyze_depth("data/images/5.jpg", show_debug=True)

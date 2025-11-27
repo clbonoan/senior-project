@@ -6,24 +6,24 @@ import numpy as np
 import io, contextlib
 
 # use same shadow mask as texture.py
-from texture import make_shadow_mask as texture_make_shadow_mask
+from shadow_mask import final_shadow_mask, srgb_to_linear, remove_small, get_brightness, get_rgb_direction
 
-def mask_from_texture(img_bgr, suppress_prints=True, **kwargs): 
-    # call texture.py's make_shadow_mask function to get the shadow mask
-    if suppress_prints:
-        _sink = io.StringIO()
-        with contextlib.redirect_stdout(_sink):
-            out = texture_make_shadow_mask(img_bgr, **kwargs)
-    else:
-        out = texture_make_shadow_mask(img_bgr, **kwargs)
+# def mask_from_texture(img_bgr, suppress_prints=True, **kwargs): 
+#     # call texture.py's make_shadow_mask function to get the shadow mask
+#     if suppress_prints:
+#         _sink = io.StringIO()
+#         with contextlib.redirect_stdout(_sink):
+#             out = final_shadow_mask(img_bgr, **kwargs)
+#     else:
+#         out = final_shadow_mask(img_bgr, **kwargs)
 
-    if isinstance(out, tuple):
-        mask = out[0]
-    else:
-        mask = out
-    # make sure mask is applied to original image, not preprocessed one (do not want preprocessed image to be analyzed)
-    assert mask.shape[:2] == img_bgr.shape[:2], "Mask must align with original image"
-    return mask
+#     if isinstance(out, tuple):
+#         mask = out[0]
+#     else:
+#         mask = out
+#     # make sure mask is applied to original image, not preprocessed one (do not want preprocessed image to be analyzed)
+#     assert mask.shape[:2] == img_bgr.shape[:2], "Mask must align with original image"
+#     return mask
 
 # ----------------------------------------------------------
 # SHADOW MASK HELPERS
@@ -31,15 +31,12 @@ def mask_from_texture(img_bgr, suppress_prints=True, **kwargs):
 def srgb_to_linear(x8):
     # x in [0,1], sRGB -> linear
     x = x8.astype(np.float32) / 255.0
-    
+    # Normalize only if we're in 0..255 domain
+    if x.max() > 1.0:
+        x = x / 255.0
     a = 0.055
     result = np.where(x <= 0.04045, x/12.92, ((x + a)/(1 + a))**2.4)
     return result.astype(np.float32)
-
-def box_mean(arr, k):
-    # calculating the average of neighboring pixels with box filter
-    # good for reducing noise since it smooths
-    return cv.boxFilter(arr, ddepth=-1, ksize=(k, k), normalize=True)
 
 def remove_small(mask, min_area=800):
     # remove small noisy regions from the mask
@@ -53,31 +50,6 @@ def remove_small(mask, min_area=800):
         if stats[i, cv.CC_STAT_AREA] >= min_area:
             keep[labels == i] = 255
     return keep
-
-def get_brightness(img_bgr):
-    # calculate brightness (luminance) from BGR image
-    # convert to linear first
-    linear = srgb_to_linear(img_bgr)
-    B, G, R = cv.split(linear)
-    # standard brightness formula
-    brightness = 0.114*B + 0.587*G + 0.299*R
-    return brightness.astype(np.float32)
-
-def normalized_rgb(img_bgr):
-    # normalize the RGB channels to help identify shadows through color consistency
-    b, g, r = cv.split(img_bgr.astype(np.float32))
-
-    # calculate sum of pixel values
-    # total light intensity (similar to luminance) at each pixel location
-    # add 1e-6 to avoid diving by zero
-    sum = r + g + b + 1e-6
-    return r/sum, g/sum     # chroma ratios red and green since they are more stable than blue channel
-
-def get_rgb_direction(img_bgr):
-    # get RGB direction for color matching
-    linear = srgb_to_linear(img_bgr)
-    length = np.linalg.norm(linear, axis=2, keepdims=True) + 1e-6
-    return linear/length
 
 # ----------------------------------------------------------
 # CALCULATE SKEW AND KURTOSIS
@@ -502,9 +474,9 @@ def extract_features(
     - ml_features: dict of features for ML
     '''
     mask_kwargs = mask_kwargs or {}
-    # get shadow mask using same function as texture.py
+    # get shadow mask from shadow_mask.py
     if mask is None: 
-        shadow_mask = mask_from_texture(img_bgr, **mask_kwargs)
+        shadow_mask = final_shadow_mask(img_bgr, **mask_kwargs)     # 0/255 mask
     else:
         shadow_mask = mask
 
@@ -722,8 +694,8 @@ def analyze_lighting(image_path, show_debug=False, compute_tamper_score=True):
     else:
         viz = None
 
-    mask = mask_from_texture(img)
-    assert mask.shape[:2] == img.shape[:2], "Mask must align with original image"
+    mask = final_shadow_mask(img)
+    assert mask.shape[:2] == img.shape[:2], "mask must align with original image"
 
     # extract ML features
     features = extract_features(img, mask, debug=show_debug, viz=viz)
