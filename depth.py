@@ -1,7 +1,7 @@
 # Third Feature - depth through correspoinding points of shadows and objects intersecting at a single point
 # Checks if shadows are consistent with their matching objects and created by the same light source to verify authenticity
 
-import cv2 as cv
+import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 import io, contextlib
@@ -32,30 +32,30 @@ def mask_from_texture(img_bgr, suppress_prints=True, **kwargs):
 def overlay_red_mask(img_bgr, mask):
     mask_overlay = np.zeros_like(img_bgr)
     mask_overlay[:, :, 2] = mask    # gives red channel
-    return cv.addWeighted(img_bgr, 0.7, mask_overlay, 0.3, 0)
+    return cv2.addWeighted(img_bgr, 0.7, mask_overlay, 0.3, 0)
 
 def shadow_bounds_from_mask(mask):
     # canny edge on the shadow mask to show the boundaries
-    return cv.Canny(mask, 50, 150)
+    return cv2.Canny(mask, 50, 150)
 
 def draw_points(img, pts, color, radius=2):
     out = img.copy()
     for (x, y) in pts:
-        cv.circle(out, (int(x), int(y)), radius, color, -1, lineType=cv.LINE_AA)
+        cv2.circle(out, (int(x), int(y)), radius, color, -1, lineType=cv2.LINE_AA)
     return out
 
 def draw_pairs(img, pairs):
     out = img.copy()
     for (s, o) in pairs:
-        cv.circle(out, s, 2, (0, 0, 255), -1, lineType=cv.LINE_AA)  # red shadow
-        cv.circle(out, o, 2, (0, 255, 0), -1, lineType=cv.LINE_AA)  # green object
-        cv.line(out, s, o, (255, 200, 0), 1, lineType=cv.LINE_AA)
+        cv2.circle(out, s, 2, (0, 0, 255), -1, lineType=cv2.LINE_AA)  # red shadow
+        cv2.circle(out, o, 2, (0, 255, 0), -1, lineType=cv2.LINE_AA)  # green object
+        cv2.line(out, s, o, (255, 200, 0), 1, lineType=cv2.LINE_AA)
     return out
 
 def draw_lines_only(img, pairs):
     out = img.copy()
     for (s, o) in pairs:
-        cv.line(out, s, o, (0, 0, 0), 2, lineType=cv.LINE_AA)
+        cv2.line(out, s, o, (0, 0, 0), 2, lineType=cv2.LINE_AA)
     return out
 
 def draw_convergence(img, pairs, intersections, estimated_light):
@@ -63,14 +63,14 @@ def draw_convergence(img, pairs, intersections, estimated_light):
     out = img.copy()
     # all pair lines
     for (s, o) in pairs:
-        cv.line(out, s, o, (200, 200, 200), 1, lineType=cv.LINE_AA)
+        cv2.line(out, s, o, (200, 200, 200), 1, lineType=cv2.LINE_AA)
     # intersections area
     for (x, y) in intersections:
-        cv.circle(out, (int(round(x)), int(round(y))), 2, (0, 0, 255), -1, lineType=cv.LINE_AA)
+        cv2.circle(out, (int(round(x)), int(round(y))), 2, (0, 0, 255), -1, lineType=cv2.LINE_AA)
     # estimated light
     if estimated_light is not None:
-        cv.drawMarker(out, (int(estimated_light[0]), int(estimated_light[1])),
-                      (255, 0, 255), cv.MARKER_STAR, 20, 2)
+        cv2.drawMarker(out, (int(estimated_light[0]), int(estimated_light[1])),
+                      (255, 0, 255), cv2.MARKER_STAR, 20, 2)
     return out
 
 def draw_convergence_measure(img, intersections, estimated_light, avg_distance):
@@ -79,12 +79,12 @@ def draw_convergence_measure(img, intersections, estimated_light, avg_distance):
     
     cx, cy = int(estimated_light[0]), int(estimated_light[1])
     for (x, y) in intersections:
-        cv.circle(img, (int(round(x)), int(round(y))), 2, (0, 0, 255), -1, lineType=cv.LINE_AA)
+        cv2.circle(img, (int(round(x)), int(round(y))), 2, (0, 0, 255), -1, lineType=cv2.LINE_AA)
     # show mean radius as a circle to visualize “spread”
-    cv.circle(img, (cx, cy), int(avg_distance), (0, 0, 0), 2, lineType=cv.LINE_AA)
-    cv.drawMarker(img, (cx, cy), (255, 0, 255), cv.MARKER_CROSS, 20, 2)
-    cv.putText(img, f"avg spread - {avg_distance:.1f}px", (10, 30),
-               cv.FONT_HERSHEY_PLAIN, 0.9, (0, 0, 0), 1)
+    cv2.circle(img, (cx, cy), int(avg_distance), (0, 0, 0), 2, lineType=cv2.LINE_AA)
+    cv2.drawMarker(img, (cx, cy), (255, 0, 255), cv2.MARKER_CROSS, 20, 2)
+    cv2.putText(img, f"avg spread - {avg_distance:.1f}px", (10, 30),
+               cv2.FONT_HERSHEY_PLAIN, 0.9, (0, 0, 0), 1)
     return img
 
 # class to show visualizations
@@ -97,22 +97,22 @@ class DebugVisualizer:
     
     def show_all(self):
         for name, img in self.images:
-            cv.namedWindow(name, cv.WINDOW_NORMAL)
-            cv.imshow(name, img)
-            # cv.waitKey(0)
-            # cv.destroyWindow(name)
-        cv.waitKey(0)
-        cv.destroyAllWindows()
+            cv2.namedWindow(name, cv2.WINDOW_NORMAL)
+            cv2.imshow(name, img)
+            # cv2.waitKey(0)
+            # cv2.destroyWindow(name)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
 
 def find_corners(image, max_corners=50):
     '''
     find corner points in the image (i.e., corners of boxes, tips of cones, etc.)
     these are geometrically significant points we want to use
     '''
-    gray = cv.cvtColor(image, cv.COLOR_BGR2GRAY)
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     
     # Shi-Tomasi corner detection (good quality corners)
-    corners = cv.goodFeaturesToTrack(
+    corners = cv2.goodFeaturesToTrack(
         gray,
         maxCorners=max_corners,
         qualityLevel=0.01,
@@ -143,18 +143,18 @@ def find_shadow_object_pairs(img_bgr, shadow_mask):
     - list of coords ((shadow_edge_x, shadow_edge_y), (object_edge_x, object_edge_y)) pairs
     '''
     # # find shadow edges
-    # shadow_edges = cv.Canny(shadow_mask, 50, 150)
+    # shadow_edges = cv2.Canny(shadow_mask, 50, 150)
 
     # # find edges in the original image to find the objects
-    # gray = cv.cvtColor(img_bgr, cv.COLOR_BGR2GRAY)
-    # object_edges = cv.Canny(gray, 50, 150)
+    # gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+    # object_edges = cv2.Canny(gray, 50, 150)
 
     # # get size of image
     # h, w = shadow_mask.shape
 
     # # compute gradient of shadow mask to get direction of shadow edge
-    # gx = cv.Sobel(shadow_mask, cv.CV_32F, 1, 0, ksize=3)
-    # gy = cv.Sobel(shadow_mask, cv.CV_32F, 0, 1, ksize=3)
+    # gx = cv2.Sobel(shadow_mask, cv2.CV_32F, 1, 0, ksize=3)
+    # gy = cv2.Sobel(shadow_mask, cv2.CV_32F, 0, 1, ksize=3)
 
     # # compute inward normals (from shadow edge toward the object)
     # # sobel gradient points where pixel intensity changes fast -> from dark to light
@@ -238,8 +238,8 @@ def find_shadow_object_pairs(img_bgr, shadow_mask):
         return []
     
     # calculate shadow gradient to find search direction
-    gradient_y = cv.Sobel(shadow_mask, cv.CV_32F, 0, 1, ksize=3)
-    gradient_x = cv.Sobel(shadow_mask, cv.CV_32F, 1, 0, ksize=3)
+    gradient_y = cv2.Sobel(shadow_mask, cv2.CV_32F, 0, 1, ksize=3)
+    gradient_x = cv2.Sobel(shadow_mask, cv2.CV_32F, 1, 0, ksize=3)
     
     # calculate normal direction (from shadow toward object)
     epsilon = 0.000001
@@ -468,7 +468,7 @@ def ransac_find_best_light_source(pairs, iterations=500, threshold=5.0):
 def draw_points(img, pts, color, radius=4):
     out = img.copy()
     for (x, y) in pts:
-        cv.circle(out, (int(x), int(y)), radius, color, -1, lineType=cv.LINE_AA)
+        cv2.circle(out, (int(x), int(y)), radius, color, -1, lineType=cv2.LINE_AA)
     return out
 
 def draw_results(img, shadow_mask, pairs, light_source, consistency_score, inliers=None):
@@ -478,7 +478,7 @@ def draw_results(img, shadow_mask, pairs, light_source, consistency_score, inlie
     # overlay shadow regions in red
     mask_overlay = np.zeros_like(output)
     mask_overlay[:, :, 0] = shadow_mask  # blue channel
-    output = cv.addWeighted(img, 0.7, mask_overlay, 0.4, 0)
+    output = cv2.addWeighted(img, 0.7, mask_overlay, 0.4, 0)
 
     # draw lines from shadow to object
     for idx, (shadow_pt, object_pt) in enumerate(pairs):
@@ -491,14 +491,14 @@ def draw_results(img, shadow_mask, pairs, light_source, consistency_score, inlie
         else:
             color = (0, 255, 0)
         
-        cv.line(output, shadow_pt, object_pt, color, 2)
+        cv2.line(output, shadow_pt, object_pt, color, 2)
     
     # mark the light source with a star
     if light_source is not None:
         light_x = int(light_source[0])
         light_y = int(light_source[1])
-        cv.drawMarker(output, (light_x, light_y), (0, 0, 255),
-                     markerType=cv.MARKER_CROSS, markerSize=20, thickness=2)
+        cv2.drawMarker(output, (light_x, light_y), (0, 0, 255),
+                     markerType=cv2.MARKER_CROSS, markerSize=20, thickness=2)
     
     # add verdict text
     if consistency_score > 0.7:
@@ -530,7 +530,7 @@ def calculate_depth_tamper_score(consistency_score, shadow_coverage, num_pairs):
 
 def analyze_depth(image_path, use_ransac=False, show_debug=False):    
     # load the image
-    img = cv.imread(image_path, cv.IMREAD_COLOR)
+    img = cv2.imread(image_path, cv2.IMREAD_COLOR)
     if img is None:
         raise FileNotFoundError(image_path)
 
@@ -621,9 +621,9 @@ def analyze_depth(image_path, use_ransac=False, show_debug=False):
     print(f"tamper score = {tamper_score:.2f}")
 
     # show the results
-    # cv.imshow("Shadow Depth Result", result_image)
-    # cv.waitKey(0)
-    # cv.destroyAllWindows()
+    # cv2.imshow("Shadow Depth Result", result_image)
+    # cv2.waitKey(0)
+    # cv2.destroyAllWindows()
     
     if viz:
         viz.show_all()

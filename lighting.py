@@ -1,7 +1,7 @@
 # Second Feature - lighting consistency and ...
 # Checks if shadows have consistent lighting
 
-import cv2 as cv
+import cv2
 import numpy as np
 import io, contextlib
 
@@ -40,14 +40,14 @@ def srgb_to_linear(x8):
 
 def remove_small(mask, min_area=800):
     # remove small noisy regions from the mask
-    num, labels, stats, _ = cv.connectedComponentsWithStats(mask, connectivity=8)
+    num, labels, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
     keep = np.zeros_like(mask)
     
     # background is labeled 0
     # keep only the large regions
     for i in range(1, num):
         # use the total area (# of pixels) of the component
-        if stats[i, cv.CC_STAT_AREA] >= min_area:
+        if stats[i, cv2.CC_STAT_AREA] >= min_area:
             keep[labels == i] = 255
     return keep
 
@@ -83,13 +83,13 @@ def calc_kurtosis(values):
 # HELPERS FOR ML
 # ----------------------------------------------------------
 def sobel_xy(gray32): 
-    gx = cv.Sobel(gray32, cv.CV_32F, 1, 0, ksize=3)
-    gy = cv.Sobel(gray32, cv.CV_32F, 0, 1, ksize=3)
+    gx = cv2.Sobel(gray32, cv2.CV_32F, 1, 0, ksize=3)
+    gy = cv2.Sobel(gray32, cv2.CV_32F, 0, 1, ksize=3)
     return gx, gy
 
 def boundary_from_mask(mask):
-    se = cv.getStructuringElement(cv.MORPH_ELLIPSE, (3,3))
-    return cv.morphologyEx(mask, cv.MORPH_GRADIENT, se)
+    se = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3,3))
+    return cv2.morphologyEx(mask, cv2.MORPH_GRADIENT, se)
 
 # ----------------------------------------------------------
 # PUT SAME IMAGE TYPES IN ONE WINDOW
@@ -98,7 +98,7 @@ def to_color(img):
     if img is None:
         return None
     if img.ndim == 2:
-        return cv.cvtColor(img, cv.COLOR_GRAY2BGR)
+        return cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
     return img
 
 def make_image_grid(images, cols=3, size=None, pad=6, pad_color=(30,30,30)):
@@ -116,10 +116,10 @@ def make_image_grid(images, cols=3, size=None, pad=6, pad_color=(30,30,30)):
         if img is None:
             continue
         if img.ndim == 2:
-            img = cv.cvtColor(img, cv.COLOR_GRAY2BGR)
+            img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
         if size is None:
             size = (img.shape[1], img.shape[0])  # (w,h)
-        imgs.append(cv.resize(img, size, interpolation=cv.INTER_AREA))
+        imgs.append(cv2.resize(img, size, interpolation=cv2.INTER_AREA))
     
     if not imgs:
         return None
@@ -152,7 +152,7 @@ def resize_to_fit(img, max_w=1920, max_h=1080):
     h, w = img.shape[:2]
     scale = min(max_w / max(1,w), max_h / max(1,h), 1.0)  # don't upscale past limits
     if scale < 1.0:
-        img = cv.resize(img, (int(w*scale), int(h*scale)), interpolation=cv.INTER_AREA)
+        img = cv2.resize(img, (int(w*scale), int(h*scale)), interpolation=cv2.INTER_AREA)
     return img
 
 # class to collect debug visualizations
@@ -172,8 +172,8 @@ class DebugVisualizer:
 
     def add_components_labels(self, labels):
         max_label = labels.max() + 1 if labels.size else 1
-        colored = cv.applyColorMap(((labels.astype(np.float32)/max(1,max_label))*255).astype(np.uint8),
-                                   cv.COLORMAP_JET)
+        colored = cv2.applyColorMap(((labels.astype(np.float32)/max(1,max_label))*255).astype(np.uint8),
+                                   cv2.COLORMAP_JET)
         self.components.append(colored)
 
     def add_shadow_and_bright(self, overlay_bgr):
@@ -200,14 +200,14 @@ class DebugVisualizer:
             if fit_to_screen:
                 grid = resize_to_fit(grid, max_w=max_w, max_h=max_h)
 
-            cv.namedWindow(title, cv.WINDOW_NORMAL)
-            cv.imshow(title, grid)
+            cv2.namedWindow(title, cv2.WINDOW_NORMAL)
+            cv2.imshow(title, grid)
             # size window exactly to montage
             h, w = grid.shape[:2]
-            cv.resizeWindow(title, w, h)
+            cv2.resizeWindow(title, w, h)
             
-        cv.waitKey(0)
-        cv.destroyAllWindows()
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
 
 # -------------------------------------------------------
 # LIGHTING STRENGTH CONSISTENCY ANALYSIS
@@ -242,7 +242,7 @@ def find_dark_part(shadow_mask, brightness, keep_fraction=0.5, shrink=3):
     # shrink mask to avoid edges
     if shrink > 0:
         kernel = np.ones((3,3), np.uint8)
-        shadow_mask = cv.erode(shadow_mask.astype(np.uint8), kernel, 
+        shadow_mask = cv2.erode(shadow_mask.astype(np.uint8), kernel, 
                                iterations=shrink).astype(bool)
     
     shadow_pixels = brightness[shadow_mask]
@@ -264,7 +264,7 @@ def find_bright_nearby(img_bgr, shadow_mask, brightness, expand=4, color_diff=0.
     # expand shadow to get ring around it
     kernel = np.ones((3,3), np.uint8)
     sm = (shadow_mask > 0)
-    expanded = cv.dilate(sm.astype(np.uint8), kernel, iterations=expand).astype(bool)
+    expanded = cv2.dilate(sm.astype(np.uint8), kernel, iterations=expand).astype(bool)
     
     # ring is expanded area minus shadow
     ring = expanded & (~sm) & (brightness > 0.001)
@@ -276,7 +276,7 @@ def find_bright_nearby(img_bgr, shadow_mask, brightness, expand=4, color_diff=0.
     
     # use inside of shadow for color reference
     # erosion removes pixels from shadow's boundaries
-    eroded = cv.erode(sm.astype(np.uint8), kernel, iterations=2).astype(bool)
+    eroded = cv2.erode(sm.astype(np.uint8), kernel, iterations=2).astype(bool)
     if eroded.sum() < 50:
         eroded = sm  # fallback
     
@@ -376,7 +376,7 @@ def features_one_shadow(
         #     if high > low:
         #         disp = np.clip(display_map, low, high)
 
-        # display_map = cv.normalize(display_map, None, 0, 255, cv.NORM_MINMAX).astype(np.uint8)
+        # display_map = cv2.normalize(display_map, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
 
         # create the overlay    (BGR)
         overlay = img_bgr.copy()
@@ -484,7 +484,7 @@ def extract_features(
     shadow_mask = remove_small((shadow_mask > 0).astype(np.uint8) * 255, min_area=min_area)
 
     # separate into individual shadows
-    num_shadows, labels = cv.connectedComponents(shadow_mask)
+    num_shadows, labels = cv2.connectedComponents(shadow_mask)
 
     # compute brightness and gradients once
     L = get_brightness(img_bgr)
@@ -498,7 +498,7 @@ def extract_features(
         # overlay of mask on original image
         overlay = img_bgr.copy()
         overlay[shadow_mask > 0] = [0, 0, 255]  # yellow for shadows
-        blended = cv.addWeighted(img_bgr, 0.6, overlay, 0.4, 0)
+        blended = cv2.addWeighted(img_bgr, 0.6, overlay, 0.4, 0)
         viz.add_mask_overlay(blended)        
 
     # initialize ML features dict
@@ -679,11 +679,11 @@ def calculate_light_tamper_score(ml_features):
 def analyze_lighting(image_path, show_debug=False, compute_tamper_score=True):
     # print tamper score
     # similar to texture.py
-    # img = cv.imread(image_path, cv.IMREAD_COLOR)
+    # img = cv2.imread(image_path, cv2.IMREAD_COLOR)
     # if img is None:
     #     raise FileNotFoundError(image_path)
     if isinstance(image_path, str):
-        img = cv.imread(image_path)
+        img = cv2.imread(image_path)
     else:
         img = image_path
     
@@ -724,5 +724,5 @@ def analyze_lighting(image_path, show_debug=False, compute_tamper_score=True):
     return result
 
 if __name__ == "__main__":
-    result = analyze_lighting("data/images/5.jpg", show_debug=True)
+    result = analyze_lighting("data/images/20-edited.jpg", show_debug=True)
     print("\nExtracted features:", result["features"])

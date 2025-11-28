@@ -1,7 +1,7 @@
 # First Feature: edge detection and texture analysis
 # Detects shadows in images and compares textures inside and outside shadows
 
-import cv2 as cv
+import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -34,17 +34,17 @@ def lbp_entropy_np(lbp, region=None):
 
 def component_stats_min(mask):
     # return only num_shadow_components, comp_area_p90, comp_peri2_over_area_p50
-    num, labels, stats, _ = cv.connectedComponentsWithStats(mask, connectivity=8)
+    num, labels, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
     areas, peri2_over_area = [], []
 
     for i in range(1, num):
         # 0 is the background
-        a = stats[i, cv.CC_STAT_AREA]
+        a = stats[i, cv2.CC_STAT_AREA]
         areas.append(a)
         comp = (labels == i).astype(np.uint8) * 255
-        cnts, _ = cv.findContours(comp, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+        cnts, _ = cv2.findContours(comp, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         if cnts and a > 0:
-            peri = cv.arcLength(max(cnts, key=cv.contourArea), True)
+            peri = cv2.arcLength(max(cnts, key=cv2.contourArea), True)
             peri2_over_area.append((peri * peri) / a)
 
     out = {"num_shadow_components": int(num - 1)}
@@ -70,8 +70,8 @@ def angular_variance_min(gx, gy, boundary_mask, eps=1e-6):
     return {"normal_angle_std": ang_std, "normal_mrl": R}
 
 def boundary_from_mask(mask):
-    se = cv.getStructuringElement(cv.MORPH_ELLIPSE, (3, 3))
-    return cv.morphologyEx(mask, cv.MORPH_GRADIENT, se)
+    se = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    return cv2.morphologyEx(mask, cv2.MORPH_GRADIENT, se)
 
 # ----------------------------------------------------------
 # LOCAL BINARY PATTERN (LBP) for texture analysis
@@ -164,8 +164,8 @@ def pairs_one_per_component(
     chi2_list, patch_pairs = [], []
 
     # find all separate shadow components/regions
-    num, labels, stats, _ = cv.connectedComponentsWithStats(mask_u8, connectivity=8)
-    k3 = cv.getStructuringElement(cv.MORPH_ELLIPSE, (3, 3))
+    num, labels, stats, _ = cv2.connectedComponentsWithStats(mask_u8, connectivity=8)
+    k3 = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
 
     def in_bounds(y, x):
         # check if patch fits in image
@@ -177,20 +177,20 @@ def pairs_one_per_component(
 
     # go through each shadow region
     for i in range(1, num):  # 0 is background
-        area = stats[i, cv.CC_STAT_AREA]
+        area = stats[i, cv2.CC_STAT_AREA]
         # skip small regions
         if area < min_area:
             continue
 
         # grab shadow component    
         comp = (labels == i).astype(np.uint8) * 255
-        boundary = cv.morphologyEx(comp, cv.MORPH_GRADIENT, k3)
+        boundary = cv2.morphologyEx(comp, cv2.MORPH_GRADIENT, k3)
         
         if boundary.sum() == 0:
             continue
 
         # find a good point inside the shadow that is far from edges
-        dist = cv.distanceTransform((comp > 0).astype(np.uint8), cv.DIST_L2, 5)
+        dist = cv2.distanceTransform((comp > 0).astype(np.uint8), cv2.DIST_L2, 5)
         yi_in, xi_in = np.unravel_index(np.argmax(dist), dist.shape)
         yi_in = int(np.clip(yi_in, s, h - s - 1))
         xi_in = int(np.clip(xi_in, s, w - s - 1))
@@ -215,7 +215,7 @@ def pairs_one_per_component(
             nx, ny = g[0] / nrm, g[1] / nrm
         else:
             # use direction from center to boundary
-            M = cv.moments(comp, binaryImage=True)
+            M = cv2.moments(comp, binaryImage=True)
             # total area in shadow; if area is 0 (empty shadow), use bound point as center
             if abs(M["m00"]) < 1e-6:
                 cx, cy = xb, yb
@@ -487,30 +487,30 @@ def visualize_texture_analysis(img, mask, L8, lbp, chi2_list, patch_pairs, max_p
     visualize the texture analysis results with maps
     '''
     # outline of the mask (shadow boundaries)
-    k = cv.getStructuringElement(cv.MORPH_ELLIPSE, (3, 3))
-    mask_outline = cv.morphologyEx(mask, cv.MORPH_GRADIENT, k)
+    k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    mask_outline = cv2.morphologyEx(mask, cv2.MORPH_GRADIENT, k)
 
     # make LBP texture map 
     lbp = lbp_map(L8)
-    lbp_vis = cv.normalize(lbp, None, 0, 255, cv.NORM_MINMAX).astype(np.uint8)
+    lbp_vis = cv2.normalize(lbp, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
     # outline the shadow areas (using mask boundaries)
-    lbp_color = cv.applyColorMap(lbp_vis, cv.COLORMAP_BONE)
+    lbp_color = cv2.applyColorMap(lbp_vis, cv2.COLORMAP_BONE)
     lbp_color[mask_outline > 0] = (255, 0, 0)
 
     # show shadow mask
     mask_overlay = img.copy()
     mask_overlay[mask == 255] = (0, 0, 255)  # red mask overlay
-    mask_overlay = cv.addWeighted(img, 0.7, mask_overlay, 0.3, 0)
+    mask_overlay = cv2.addWeighted(img, 0.7, mask_overlay, 0.3, 0)
 
-    cv.namedWindow("Shadow Mask", cv.WINDOW_NORMAL)
-    cv.resizeWindow("Shadow Mask", 800, 600)
-    cv.imshow("Shadow Mask", mask)
+    cv2.namedWindow("Shadow Mask", cv2.WINDOW_NORMAL)
+    cv2.resizeWindow("Shadow Mask", 800, 600)
+    cv2.imshow("Shadow Mask", mask)
 
-    cv.namedWindow("Overlay", cv.WINDOW_NORMAL)
-    cv.resizeWindow("Overlay", 800, 600)
-    cv.imshow("Overlay", mask_overlay)
+    cv2.namedWindow("Overlay", cv2.WINDOW_NORMAL)
+    cv2.resizeWindow("Overlay", 800, 600)
+    cv2.imshow("Overlay", mask_overlay)
 
-    cv.waitKey(1)
+    cv2.waitKey(1)
 
     # show lbp map with matplotlib
     plt.figure(figsize=(8, 6))
@@ -528,16 +528,16 @@ def visualize_texture_analysis(img, mask, L8, lbp, chi2_list, patch_pairs, max_p
     for i in range(vis_n):
         (x_in, y_in), (x_out, y_out), s = patch_pairs[i]
         # red box = inside shadow
-        cv.rectangle(overlay_pairs, (x_in, y_in), (x_in + s, y_in + s), (0, 0, 255), 2)
+        cv2.rectangle(overlay_pairs, (x_in, y_in), (x_in + s, y_in + s), (0, 0, 255), 2)
         # green box = outside shadow (lit area)
-        cv.rectangle(overlay_pairs, (x_out, y_out), (x_out + s, y_out + s), (0, 255, 0), 2)
+        cv2.rectangle(overlay_pairs, (x_out, y_out), (x_out + s, y_out + s), (0, 255, 0), 2)
         # label pairs
-        cv.putText(overlay_pairs, str(i), (x_in, max(0, y_in - 3)), cv.FONT_HERSHEY_SIMPLEX, 0.4, (0,0,255), 1, cv.LINE_AA)
-        cv.putText(overlay_pairs, str(i), (x_out, max(0, y_out - 3)), cv.FONT_HERSHEY_SIMPLEX, 0.4, (0,255,0), 1, cv.LINE_AA)                
+        cv2.putText(overlay_pairs, str(i), (x_in, max(0, y_in - 3)), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0,0,255), 1, cv2.LINE_AA)
+        cv2.putText(overlay_pairs, str(i), (x_out, max(0, y_out - 3)), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0,255,0), 1, cv2.LINE_AA)                
 
-    cv.namedWindow("Comparison Patches (red=inside shadow, green=outside shadow)", cv.WINDOW_NORMAL)
-    cv.resizeWindow("Comparison Patches (red=inside shadow, green=outside shadow)", 1000, 750)
-    cv.imshow("Comparison Patches (red=inside shadow, green=outside shadow)", overlay_pairs)
+    cv2.namedWindow("Comparison Patches (red=inside shadow, green=outside shadow)", cv2.WINDOW_NORMAL)
+    cv2.resizeWindow("Comparison Patches (red=inside shadow, green=outside shadow)", 1000, 750)
+    cv2.imshow("Comparison Patches (red=inside shadow, green=outside shadow)", overlay_pairs)
 
     # chi-squared histogram (similarity scores)
     if len(chi2_list) > 0:
@@ -549,8 +549,8 @@ def visualize_texture_analysis(img, mask, L8, lbp, chi2_list, patch_pairs, max_p
         plt.tight_layout()
         plt.show()
 
-    cv.waitKey(0)
-    cv.destroyAllWindows()
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
 
 # ----------------------------------------------------------
 # CHOOSING THE IMAGE - MAIN ANALYSIS
@@ -562,7 +562,7 @@ def analyze_texture(image_input, visualize=True, compute_tamper_score=True, max_
     - return raw chi-square distances for ML feature engineering
     '''
     if isinstance(image_input, str):
-        img = cv.imread(image_input)
+        img = cv2.imread(image_input)
     else:
         img = image_input
 
@@ -592,8 +592,8 @@ def analyze_texture(image_input, visualize=True, compute_tamper_score=True, max_
     L8_text = np.uint8(np.clip(I0*255, 0, 255))
 
     # calculate gradients to find outward direction of shadow
-    gx = cv.Sobel(L8_text, cv.CV_32F, 1, 0, ksize=3)
-    gy = cv.Sobel(L8_text, cv.CV_32F, 0, 1, ksize=3)
+    gx = cv2.Sobel(L8_text, cv2.CV_32F, 1, 0, ksize=3)
+    gy = cv2.Sobel(L8_text, cv2.CV_32F, 0, 1, ksize=3)
 
     # make LBP texture map 
     lbp = lbp_map(L8_text)
@@ -638,29 +638,29 @@ def analyze_texture(image_input, visualize=True, compute_tamper_score=True, max_
 
     if visualize:
         # outline of the mask (shadow boundaries)
-        k = cv.getStructuringElement(cv.MORPH_ELLIPSE, (3, 3))
-        mask_outline = cv.morphologyEx(mask, cv.MORPH_GRADIENT, k)
+        k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        mask_outline = cv2.morphologyEx(mask, cv2.MORPH_GRADIENT, k)
 
         # lbp map
-        lbp_vis = cv.normalize(lbp, None, 0, 255, cv.NORM_MINMAX).astype(np.uint8)
+        lbp_vis = cv2.normalize(lbp, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
         # outline the shadow areas (using mask boundaries)
-        lbp_color = cv.applyColorMap(lbp_vis, cv.COLORMAP_BONE)
+        lbp_color = cv2.applyColorMap(lbp_vis, cv2.COLORMAP_BONE)
         lbp_color[mask_outline > 0] = (255, 0, 0)
 
         # show shadow mask
         mask_overlay = img.copy()
         mask_overlay[mask == 255] = (0, 0, 255)  # red mask overlay
-        mask_overlay = cv.addWeighted(img, 0.7, mask_overlay, 0.4, 0)
+        mask_overlay = cv2.addWeighted(img, 0.7, mask_overlay, 0.4, 0)
 
-        cv.namedWindow("Shadow Mask", cv.WINDOW_NORMAL)
-        cv.resizeWindow("Shadow Mask", 800, 600)
-        cv.imshow("Shadow Mask", mask)
+        cv2.namedWindow("Shadow Mask", cv2.WINDOW_NORMAL)
+        cv2.resizeWindow("Shadow Mask", 800, 600)
+        cv2.imshow("Shadow Mask", mask)
 
-        cv.namedWindow("Overlay", cv.WINDOW_NORMAL)
-        cv.resizeWindow("Overlay", 800, 600)
-        cv.imshow("Overlay", mask_overlay)
+        cv2.namedWindow("Overlay", cv2.WINDOW_NORMAL)
+        cv2.resizeWindow("Overlay", 800, 600)
+        cv2.imshow("Overlay", mask_overlay)
 
-        cv.waitKey(1)
+        cv2.waitKey(1)
 
         # show lbp map with matplotlib
         plt.figure(figsize=(8, 6))
@@ -678,16 +678,16 @@ def analyze_texture(image_input, visualize=True, compute_tamper_score=True, max_
         for i in range(vis_n):
             (x_in, y_in), (x_out, y_out), s = patch_pairs[i]
             # red box = inside shadow
-            cv.rectangle(overlay_pairs, (x_in, y_in), (x_in + s, y_in + s), (0, 0, 255), 2)
+            cv2.rectangle(overlay_pairs, (x_in, y_in), (x_in + s, y_in + s), (0, 0, 255), 2)
             # green box = outside shadow (lit area)
-            cv.rectangle(overlay_pairs, (x_out, y_out), (x_out + s, y_out + s), (0, 255, 0), 2)
+            cv2.rectangle(overlay_pairs, (x_out, y_out), (x_out + s, y_out + s), (0, 255, 0), 2)
             # label pairs
-            cv.putText(overlay_pairs, str(i), (x_in, max(0, y_in - 3)), cv.FONT_HERSHEY_SIMPLEX, 0.4, (0,0,255), 1, cv.LINE_AA)
-            cv.putText(overlay_pairs, str(i), (x_out, max(0, y_out - 3)), cv.FONT_HERSHEY_SIMPLEX, 0.4, (0,255,0), 1, cv.LINE_AA)                
+            cv2.putText(overlay_pairs, str(i), (x_in, max(0, y_in - 3)), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0,0,255), 1, cv2.LINE_AA)
+            cv2.putText(overlay_pairs, str(i), (x_out, max(0, y_out - 3)), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0,255,0), 1, cv2.LINE_AA)                
 
-        cv.namedWindow("Comparison Patches (red=inside shadow, green=outside shadow)", cv.WINDOW_NORMAL)
-        cv.resizeWindow("Comparison Patches (red=inside shadow, green=outside shadow)", 1000, 750)
-        cv.imshow("Comparison Patches (red=inside shadow, green=outside shadow)", overlay_pairs)
+        cv2.namedWindow("Comparison Patches (red=inside shadow, green=outside shadow)", cv2.WINDOW_NORMAL)
+        cv2.resizeWindow("Comparison Patches (red=inside shadow, green=outside shadow)", 1000, 750)
+        cv2.imshow("Comparison Patches (red=inside shadow, green=outside shadow)", overlay_pairs)
 
         # chi-squared histogram (similarity scores)
         if len(chi2_list) > 0:
@@ -699,8 +699,8 @@ def analyze_texture(image_input, visualize=True, compute_tamper_score=True, max_
             plt.tight_layout()
             plt.show()
 
-        cv.waitKey(0)
-        cv.destroyAllWindows()
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
 
     # return results
     result = {
@@ -720,5 +720,5 @@ def analyze_texture(image_input, visualize=True, compute_tamper_score=True, max_
 
 
 if __name__ == "__main__":
-    result = analyze_texture("data/images/14.jpg", visualize=True)
+    result = analyze_texture("data/images/32-edited.jpg", visualize=True)
     print("\nExtracted features:", result["features"])
