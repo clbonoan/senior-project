@@ -611,11 +611,12 @@ def analyze_texture(image_input, visualize=True, compute_tamper_score=True, max_
         out_offset=9
     )
 
-    print("\nTexture similarity scores (chi-squared distance):")
-    print("Lower values = more similar texture = likely real shadow")
-    print("Higher values = different texture = possible fake shadow")
-    for i, d in enumerate(chi2_list, start=1):
-        print(f"  Pair {i:02d}: {d:.4f}")
+    # CONSOLE OUTPUT OF RESULTS
+    # print("\nTexture similarity scores (chi-squared distance):")
+    # print("Lower values = more similar texture = likely real shadow")
+    # print("Higher values = different texture = possible fake shadow")
+    # for i, d in enumerate(chi2_list, start=1):
+    #     print(f"  Pair {i:02d}: {d:.4f}")
 
     # extract features for ML (independent of rule-based scoring)
     features = extract_features(

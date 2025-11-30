@@ -55,28 +55,28 @@ def visualize_shadow_filtering(img, mask, min_shadow_area=300, min_perimeter=30)
             kept_count += 1
             kept_areas.append(area)
     
-    # print statistics
-    print(f"\n{'='*60}")
-    print(f"SHADOW REGION FILTERING DIAGNOSTICS")
-    print(f"{'='*60}")
-    print(f"Total regions found: {len(contours)}")
-    print(f"  Kept (GREEN):   {kept_count} regions")
-    if kept_areas:
-        print(f"    Area range: {min(kept_areas):.0f} - {max(kept_areas):.0f} px-squared")
-    print(f"  Skipped (RED):  {skipped_count} regions")
-    if skipped_areas:
-        print(f"    Area range: {min(skipped_areas):.0f} - {max(skipped_areas):.0f} px-squared")
-    print(f"\nCurrent thresholds:")
-    print(f"  min_shadow_area = {min_shadow_area} px-squared")
-    print(f"  min_perimeter   = {min_perimeter} px")
-    print(f"\nAdjustment tips:")
-    if kept_count == 0:
-        print(f"  No regions kept, decrease min_shadow_area (try {min_shadow_area//2})")
-    elif skipped_count == 0:
-        print(f"  No regions filtered, image may have noise. Increase min_shadow_area")
-    else:
-        print(f"  Reasonable thresholds")
-    print(f"{'='*60}\n")
+    # CONSOLE OUTPUT OF STATISTICS
+    # print(f"\n{'='*60}")
+    # print(f"SHADOW REGION FILTERING DIAGNOSTICS")
+    # print(f"{'='*60}")
+    # print(f"Total regions found: {len(contours)}")
+    # print(f"  Kept (GREEN):   {kept_count} regions")
+    # if kept_areas:
+    #     print(f"    Area range: {min(kept_areas):.0f} - {max(kept_areas):.0f} px-squared")
+    # print(f"  Skipped (RED):  {skipped_count} regions")
+    # if skipped_areas:
+    #     print(f"    Area range: {min(skipped_areas):.0f} - {max(skipped_areas):.0f} px-squared")
+    # print(f"\nCurrent thresholds:")
+    # print(f"  min_shadow_area = {min_shadow_area} px-squared")
+    # print(f"  min_perimeter   = {min_perimeter} px")
+    # print(f"\nAdjustment tips:")
+    # if kept_count == 0:
+    #     print(f"  No regions kept, decrease min_shadow_area (try {min_shadow_area//2})")
+    # elif skipped_count == 0:
+    #     print(f"  No regions filtered, image may have noise. Increase min_shadow_area")
+    # else:
+    #     print(f"  Reasonable thresholds")
+    # print(f"{'='*60}\n")
     
     # display
     cv2.namedWindow("Shadow Filtering (GREEN=keep, RED=skip)", cv2.WINDOW_NORMAL)
@@ -314,11 +314,12 @@ def sample_profiles_along_contour(
         center_ys.append(float(p[1]))
         debug_points.append((int(p[0]), int(p[1])))
 
-    if sampled_count > 0:
-        print(f"    [DEBUG] Sampled {sampled_count} locations (every {step} pixels)")
-        print(f"    [DEBUG] Rejected {rejected_no_crossing} (no boundary crossing)")
-        print(f"    [DEBUG] Rejected {rejected_invalid_measurement} (invalid measurement)")
-        print(f"    [DEBUG] Kept {len(widths)} valid measurements")
+    # CONSOLE DEBUGGING
+    # if sampled_count > 0:
+    #     print(f"    [DEBUG] Sampled {sampled_count} locations (every {step} pixels)")
+    #     print(f"    [DEBUG] Rejected {rejected_no_crossing} (no boundary crossing)")
+    #     print(f"    [DEBUG] Rejected {rejected_invalid_measurement} (invalid measurement)")
+    #     print(f"    [DEBUG] Kept {len(widths)} valid measurements")
 
     return widths, contrasts, center_ys, debug_points
 
@@ -720,8 +721,8 @@ def visualize_depth_analysis(img, mask, debug_points, widths, contrasts, directi
         axes = [(d % 180.0) for d in all_directions]
         global_axis_deg, axis_std = axial_circular_stats(axes)
 
-        # we'll align arrow directions to this axis
-        print(f"[VIS] Global shadow axis: {global_axis_deg:.1f}, std={axis_std:.1f}")
+        # we align arrow directions to this axis
+        # print(f"[VIS] Global shadow axis: {global_axis_deg:.1f}, std={axis_std:.1f}")
 
         for info in direction_debug_info:
             cx, cy = info['center']
@@ -821,7 +822,7 @@ def analyze_depth(image_input, visualize=True, sample_step=4, compute_tamper_sco
     # find shadow boundaries
     mask_u8 = mask.astype(np.uint8)
     contours, _ = cv2.findContours(mask_u8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    print(f"Found {len(contours)} shadow regions")
+    # print(f"Found {len(contours)} shadow regions")
 
     # sample profiles and measure penumbra
     all_widths = []
@@ -867,10 +868,10 @@ def analyze_depth(image_input, visualize=True, sample_step=4, compute_tamper_sco
         
         if widths:
             measured_regions += 1
-            print(f"  Region {measured_regions}: area={area:.0f}px-squared, {len(widths)} measurements")
+            # print(f"  Region {measured_regions}: area={area:.0f}px-squared, {len(widths)} measurements")
     
-    if skipped_small > 0:
-        print(f"    (Skipped {skipped_small} small regions as noise)")
+    # if skipped_small > 0:
+    #     print(f"    (Skipped {skipped_small} small regions as noise)")
 
     # collect shadow directions for direction consistency check
     all_directions = []
@@ -909,7 +910,7 @@ def analyze_depth(image_input, visualize=True, sample_step=4, compute_tamper_sco
                     'area': area
                 })            
 
-    # print direction summary
+    # CONSOLE print direction summary
     if len(all_directions) > 0:
         # axes (0–180) for consistency
         axes = [(d % 180.0) for d in all_directions]
@@ -919,43 +920,43 @@ def analyze_depth(image_input, visualize=True, sample_step=4, compute_tamper_sco
         aligned_dirs = [enforce_global_direction(d, mean_axis) for d in all_directions]
         mean_dir, dir_spread = circular_stats(aligned_dirs)
 
-        print(f"  Found {len(all_directions)} elongated shadows")
-        print(f"  Mean axis: {mean_axis:.1f} deg (0≡180), axis std: {std_axis:.1f} deg")
-        print(f"  Mean direction (aligned): {mean_dir:.1f} deg, spread: {dir_spread:.1f} deg")
+        # print(f"  Found {len(all_directions)} elongated shadows")
+        # print(f"  Mean axis: {mean_axis:.1f} deg (0≡180), axis std: {std_axis:.1f} deg")
+        # print(f"  Mean direction (aligned): {mean_dir:.1f} deg, spread: {dir_spread:.1f} deg")
         
-        if std_axis < 15:
-            print(f"  → Very consistent (aligned shadows)")
-        elif std_axis < 30:
-            print(f"  → Moderately consistent")
-        else:
-            print(f"  → High variation (possibly different light sources)")
-    else:
-        print(f"  No elongated shadows found (all too circular)")
-        print(f"  Direction consistency cannot be assessed")
+    #     if std_axis < 15:
+    #         print(f"  → Very consistent (aligned shadows)")
+    #     elif std_axis < 30:
+    #         print(f"  → Moderately consistent")
+    #     else:
+    #         print(f"  → High variation (possibly different light sources)")
+    # else:
+    #     print(f"  No elongated shadows found (all too circular)")
+    #     print(f"  Direction consistency cannot be assessed")
 
     # calculate stats for penumbra width
-    print(f"\n{'='*60}")
-    print(f"PENUMBRA HARDNESS ANALYSIS")
-    print(f"{'='*60}")
-    print(f"Total measurements: {len(all_widths)}")
+    # print(f"\n{'='*60}")
+    # print(f"PENUMBRA HARDNESS ANALYSIS")
+    # print(f"{'='*60}")
+    # print(f"Total measurements: {len(all_widths)}")
     
-    if len(all_widths) > 0:
-        print(f"\nEdge Width (Penumbra Hardness):")
-        print(f"  Mean:   {np.mean(all_widths):.2f} pixels")
-        print(f"  Median: {np.median(all_widths):.2f} pixels")
-        print(f"  Std:    {np.std(all_widths):.2f} pixels")
-        print(f"  Range:  {np.min(all_widths):.2f} - {np.max(all_widths):.2f} pixels")
+    # if len(all_widths) > 0:
+    #     print(f"\nEdge Width (Penumbra Hardness):")
+    #     print(f"  Mean:   {np.mean(all_widths):.2f} pixels")
+    #     print(f"  Median: {np.median(all_widths):.2f} pixels")
+    #     print(f"  Std:    {np.std(all_widths):.2f} pixels")
+    #     print(f"  Range:  {np.min(all_widths):.2f} - {np.max(all_widths):.2f} pixels")
         
-        print(f"\nShadow Contrast:")
-        print(f"  Mean:   {np.mean(all_contrasts):.1f} intensity units")
-        print(f"  Median: {np.median(all_contrasts):.1f} intensity units")
-        print(f"  Range:  {np.min(all_contrasts):.1f} - {np.max(all_contrasts):.1f}")
-    else:
-        print("\nWARNING: No valid penumbra measurements found")
-        print("Possibilities:")
-        print("  - Shadow edges are too small/fragmented")
-        print("  - Shadows are too hard (width < min threshold)")
-        print("  - Not enough contrast at boundaries")
+    #     print(f"\nShadow Contrast:")
+    #     print(f"  Mean:   {np.mean(all_contrasts):.1f} intensity units")
+    #     print(f"  Median: {np.median(all_contrasts):.1f} intensity units")
+    #     print(f"  Range:  {np.min(all_contrasts):.1f} - {np.max(all_contrasts):.1f}")
+    # else:
+    #     print("\nWARNING: No valid penumbra measurements found")
+    #     print("Possibilities:")
+    #     print("  - Shadow edges are too small/fragmented")
+    #     print("  - Shadows are too hard (width < min threshold)")
+    #     print("  - Not enough contrast at boundaries")
 
     features = extract_features(all_widths, all_contrasts, all_directions)
 

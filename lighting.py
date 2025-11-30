@@ -638,8 +638,8 @@ def extract_features(
         ml_features["sr_confidence"] = 0.0
         #score = 0.0  # uncertain
 
-    print(f"Found {int(num_shadows-1)} shadows, {usable} usable")
-    print(f"Rule-Based Tamper Score: {score:.4f}")
+    # print(f"Found {int(num_shadows-1)} shadows, {usable} usable")
+    # print(f"Rule-Based Tamper Score: {score:.4f}")
 
     return ml_features    
 
