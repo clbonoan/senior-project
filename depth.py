@@ -11,7 +11,7 @@ from typing import Dict, List, Tuple, Optional
 from shadow_mask import final_shadow_mask, bgr_to_hsi_linear
 
 # ----------------------------------------------------------
-# VISUALIZE FILTERING
+# VISUALIZE FILTERING - only for testing purposes
 # ----------------------------------------------------------
 def visualize_shadow_filtering(img, mask, min_shadow_area=300, min_perimeter=30):
     '''
@@ -71,11 +71,11 @@ def visualize_shadow_filtering(img, mask, min_shadow_area=300, min_perimeter=30)
     print(f"  min_perimeter   = {min_perimeter} px")
     print(f"\nAdjustment tips:")
     if kept_count == 0:
-        print(f"  No regions kept! Decrease min_shadow_area (try {min_shadow_area//2})")
+        print(f"  No regions kept, decrease min_shadow_area (try {min_shadow_area//2})")
     elif skipped_count == 0:
-        print(f"  No regions filtered! You may have noise. Increase min_shadow_area")
+        print(f"  No regions filtered, image may have noise. Increase min_shadow_area")
     else:
-        print(f"  Thresholds look reasonable")
+        print(f"  Reasonable thresholds")
     print(f"{'='*60}\n")
     
     # display
@@ -824,7 +824,6 @@ def analyze_depth(image_input, visualize=True, sample_step=4, compute_tamper_sco
     print(f"Found {len(contours)} shadow regions")
 
     # sample profiles and measure penumbra
-    print("Measuring penumbra hardness...")
     all_widths = []
     all_contrasts = []
     all_center_ys = []
@@ -868,13 +867,12 @@ def analyze_depth(image_input, visualize=True, sample_step=4, compute_tamper_sco
         
         if widths:
             measured_regions += 1
-            print(f"  Region {measured_regions}: area={area:.0f}px², {len(widths)} measurements")
+            print(f"  Region {measured_regions}: area={area:.0f}px-squared, {len(widths)} measurements")
     
     if skipped_small > 0:
         print(f"    (Skipped {skipped_small} small regions as noise)")
 
     # collect shadow directions for direction consistency check
-    print("\nAnalyzing shadow direction...")
     all_directions = []
     direction_debug_info = []   # for visualization
 
@@ -922,15 +920,15 @@ def analyze_depth(image_input, visualize=True, sample_step=4, compute_tamper_sco
         mean_dir, dir_spread = circular_stats(aligned_dirs)
 
         print(f"  Found {len(all_directions)} elongated shadows")
-        print(f"  Mean axis: {mean_axis:.1f}° (0≡180), axis std: {std_axis:.1f}°")
-        print(f"  Mean direction (aligned): {mean_dir:.1f}°, spread: {dir_spread:.1f}°")
+        print(f"  Mean axis: {mean_axis:.1f} deg (0≡180), axis std: {std_axis:.1f} deg")
+        print(f"  Mean direction (aligned): {mean_dir:.1f} deg, spread: {dir_spread:.1f} deg")
         
         if std_axis < 15:
             print(f"  → Very consistent (aligned shadows)")
         elif std_axis < 30:
             print(f"  → Moderately consistent")
         else:
-            print(f"  → High variation (possible different light sources)")
+            print(f"  → High variation (possibly different light sources)")
     else:
         print(f"  No elongated shadows found (all too circular)")
         print(f"  Direction consistency cannot be assessed")
@@ -953,8 +951,8 @@ def analyze_depth(image_input, visualize=True, sample_step=4, compute_tamper_sco
         print(f"  Median: {np.median(all_contrasts):.1f} intensity units")
         print(f"  Range:  {np.min(all_contrasts):.1f} - {np.max(all_contrasts):.1f}")
     else:
-        print("\nWARNING: No valid penumbra measurements found!")
-        print("This could mean:")
+        print("\nWARNING: No valid penumbra measurements found")
+        print("Possibilities:")
         print("  - Shadow edges are too small/fragmented")
         print("  - Shadows are too hard (width < min threshold)")
         print("  - Not enough contrast at boundaries")
@@ -1021,7 +1019,6 @@ if __name__ == "__main__":
         min_perimeter=30
     )
 
-    
     print("\n" + "="*60)
     print("EXTRACTED DEPTH FEATURES")
     print("="*60)
