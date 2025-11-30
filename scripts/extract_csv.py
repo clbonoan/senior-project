@@ -1,7 +1,11 @@
 # scripts/extract_csv.py
 import os, csv, sys, argparse, glob, traceback
 
-# allow "from texture import analyze_image" from root
+''' 
+TO RUN THIS SCRIPT:
+python scripts/extract_csv.py --images data/images --features texture,lighting,depth --out data/features.csv
+'''
+# allow imports from shadow feature files (ex: from texture import analyze_texture) from root
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 try:
@@ -9,26 +13,45 @@ try:
     from lighting import analyze_lighting
     from depth import analyze_depth
 except Exception as e:
-    #print("[extract] Could not import texture.analyze_image:", e)
+    #print("[extract] could not import texture.analyze_texture:", e)
     traceback.print_exc()
     sys.exit(1)
 
 IMG_EXTS = (".jpg", ".jpeg")
 
 def load_labels(path):
-    # load labels from csv file with columns: filename, label
+    '''
+    csv file with headers (filename,label)
+    return: dictionary that maps the key strings -> label (int)
+    '''
+    # load labels from csv file with columns: filename,label
     lab = {}
     if not path or not os.path.exists(path):
         return lab
     with open(path, newline="") as f:
         r = csv.DictReader(f)
-        assert "filename" in r.fieldnames and "label" in r.fieldnames, \
-            "labels.csv must have columns: filename,label"
+        # assert "filename" in r.fieldnames and "label" in r.fieldnames, \
+        #     "labels.csv must have columns: filename,label"
+        # for row in r:
+        #     v = row["label"]
+        #     try: v = int(v)
+        #     except: pass
+        #     lab[row["filename"]] = v
+        # determine which comment is present
+        if "filename" in r.fieldnames:
+            key_col = "filename"
+        elif "image_path" in r.fieldnames or "path" in r.fieldnames:
+            key_col = "image_path" if "image_path" in r.fieldnames else "path"
+        else:
+            raise AssertionError("labels.csv must have column 'filename' or 'image_path', and 'label'")
+        assert "label" in r.fieldnames, "labels.csv must have a 'label' column"
         for row in r:
             v = row["label"]
-            try: v = int(v)
-            except: pass
-            lab[row["filename"]] = v
+            try:
+                v = int(v)
+            except:
+                pass
+            lab[row[key_col]] = v
     return lab
 
 def list_images(root):
@@ -42,7 +65,7 @@ def list_images(root):
         return [root]
     return []
 
-def extract_features_from_image(path, features_to_extract, verbose=False):
+def extract_features_from_image(path, features_to_extract=("texture","lighting","depth"), verbose=False):
     '''
     extract features from all analysis modules
     args:
@@ -51,7 +74,8 @@ def extract_features_from_image(path, features_to_extract, verbose=False):
     - verbose for detailed error message
 
     return:
-    - dict: combined features from all modules (excludes rule-based tampered scores)
+    - combined_features_dict: features only, no rule-based tamper scores
+    - errors_list
     '''
     combined_features = {}
     errors = []
@@ -59,8 +83,12 @@ def extract_features_from_image(path, features_to_extract, verbose=False):
     # TEXTURE FEATURES
     if 'texture' in features_to_extract:
         try:
-            result = analyze_texture(path, visualize=False, compute_tamper_score=False)
-            texture_features = result.get("features", {})
+            result = analyze_texture(
+                path, 
+                visualize=False, 
+                compute_tamper_score=False  # DO NOT COMPUTE RULE BASED TAMPER SCORE HERE
+            )
+            texture_features = result.get("features", {}) or {}
 
             # prefix texture features to avoid name collisions
             for key, val in texture_features.items():
@@ -74,7 +102,11 @@ def extract_features_from_image(path, features_to_extract, verbose=False):
     # LIGHTING FEATURES
     if 'lighting' in features_to_extract:
         try:
-            result = analyze_lighting(path, visualize=False, compute_tamper_score=False)
+            result = analyze_lighting(
+                path, 
+                show_debug=False,   # lighting.py uses show_debug, not visualize
+                compute_tamper_score=False
+            )
             lighting_features = result.get("features", {})
 
             # prefix lighting features
@@ -89,7 +121,11 @@ def extract_features_from_image(path, features_to_extract, verbose=False):
     # DEPTH FEATURES
     if 'depth' in features_to_extract:
         try:
-            result = analyze_depth(path, visualize=False, compute_tamper_score=False)
+            result = analyze_depth(
+                path, 
+                visualize=False, 
+                compute_tamper_score=False
+            )
             depth_features = result.get("features", {})
 
             # prefix lighting features
@@ -110,6 +146,7 @@ def main():
     ap.add_argument("--out", default="data/features.csv")
     ap.add_argument("--fail", default="skip", choices=["skip","keep","stop"])
     ap.add_argument("--verbose", action="store_true")
+    ap.add_argument("--features", default="texture,lighting,depth", help="Comma-separated list of feature modules to extract")
     args = ap.parse_args()
 
     print(f"[extract] start")
@@ -124,24 +161,57 @@ def main():
         sys.exit(1)
 
     rows = []
-    all_keys = {"filename","label"}
+    all_keys = {"filename","label"}     # base columns
+
+    features_to_extract = ['texture', 'lighting', 'depth']
 
     for i, path in enumerate(files, 1):
         fname = os.path.basename(path)
+
+        print(f"[extract] extracting {i}/{len(files)}: {fname}")
         try:
-            res = analyze_texture(path, visualize=False)   # <- no GUI
-            feats = res.get("features", {})
+            # res = analyze_texture(path, visualize=False)   # <- no GUI
+            # feats = res.get("features", {})
+            feats, errors = extract_features_from_image(
+                path,
+                features_to_extract=features_to_extract,
+                verbose=args.verbose,
+            )
+
+            # handle per-module errors with --fail
+            if errors:
+                if args.verbose:
+                    print(f"[{i}/{len(files)}] {fname} feature errors: {errors}")
+                if args.fail == "stop":
+                    raise RuntimeError("; ".join(errors))
+                elif args.fail == "skip":
+                    # skip the image
+                    continue
+
         except Exception as e:
             print(f"[{i}/{len(files)}] ERROR {fname}: {e}")
-            if args.verbose: traceback.print_exc()
-            if args.fail == "stop": raise
-            elif args.fail == "keep": feats = {}
-            else: continue
+            if args.verbose: 
+                traceback.print_exc()
+            if args.fail == "stop": 
+                raise
+            elif args.fail == "keep": 
+                feats = {}
+            else: 
+                continue
 
-        row = {"filename": fname, **feats}
-        if fname in labels: row["label"] = labels[fname]
+        # make a row for this image
+        row = {"filename": fname}
+        if fname in labels: 
+            row["label"] = labels[fname]
+
+        # add features to rows
+        for k, v in feats.items():
+            row[k] = v
+
         rows.append(row)
         all_keys.update(row.keys())
+
+        print(f"[extract] done {i}/({len(files)})")
 
         if args.verbose and (i % 5 == 0 or i == len(files)):
             print(f"[extract] Processed {i}/{len(files)}")
@@ -152,13 +222,20 @@ def main():
 
     fieldnames = sorted(all_keys)
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
+
     with open(args.out, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fieldnames)
         w.writeheader()
+
         for r in rows:
+            clean_row = {}
+            # make sure all keys exist and convert values to writable values
             for k in fieldnames:
-                if k not in r: r[k] = ""
-            w.writerow(r)
+                v = r.get(k, "")
+                if v is None:
+                    v = ""
+                clean_row[k] = v
+            w.writerow(clean_row)
 
     print(f"[extract] Wrote {len(rows)} rows -> {args.out}")
     print("[extract] done")
