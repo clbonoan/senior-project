@@ -204,8 +204,74 @@ h3 {
 
 #result {
   margin-top: 40px;
-  font-size: 20px;
+  font-size: 16px;
   color: white;
+}
+
+.feature-card {
+    padding: 15px 20px;
+    border-radius: 10px;
+    text-align: center;
+    width: 220px;
+    background-color: #111;
+    border: 2px solid #666;   /* neutral gray border */
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.4);
+    transition: 0.3s ease;
+}
+
+/* row of cards */
+.feature-row {
+    display: flex;
+    gap: 20px;
+    justify-content: center;
+    margin-top: 30px;
+}
+
+/* text inside cards */
+.feature-title {
+    font-size: 20px;
+    font-weight: bold;
+    margin-bottom: 10px;
+}
+
+.feature-score,
+.feature-vote {
+    font-size: 16px;
+    margin: 5px 0;
+}
+
+/* green = real */
+.card-green {
+    border-color: #2ecc71;
+    box-shadow: 0 0 10px rgba(46, 204, 113, 0.6);
+}
+
+/* red = tampered */
+.card-red {
+    border-color: #e74c3c;
+    box-shadow: 0 0 10px rgba(231, 76, 60, 0.6);
+}
+
+/* yellow/gray = uncertain */
+.card-uncertain {
+    border-color: #f1c40f;
+    box-shadow: 0 0 10px rgba(241, 196, 15, 0.6);
+}
+
+/* vote text colors */
+.real {
+    color: #2ecc71;
+    font-weight: bold;
+}
+
+.tampered {
+    color: #e74c3c;
+    font-weight: bold;
+}
+
+.unknown {
+    color: #bdc3c7;
+    font-weight: bold;
 }
 
 p {

@@ -360,7 +360,7 @@ def estimate_shadow_direction(contour, min_points=20, min_elongation=2.0):
     max_r = float(np.max(dists))
     median_r = float(np.median(dists))
 
-    # radial elongation: ~1 => round; >2 => one strong "tail"
+    # radial elongation: 1 => round; >2 => one strong "tail"
     elongation = max_r / max(median_r, 1e-3)
     if elongation < min_elongation:
         return None
@@ -1012,7 +1012,7 @@ if __name__ == "__main__":
     # )       
 
     result = analyze_depth(
-        "data/images/19.jpg",
+        "data/images/20-edited.jpg",
         visualize=True,
         sample_step=4,
         compute_tamper_score=True,
