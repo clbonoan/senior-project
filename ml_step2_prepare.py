@@ -50,7 +50,3 @@ print("\nTesting label distribution:")
 print(y_test.value_counts())
 
 print("\nSTEP 2 COMPLETE")
-
-
-
-

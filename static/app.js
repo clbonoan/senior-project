@@ -461,8 +461,3 @@ function renderResults(data) {
 
     resultBox.innerHTML = finalHtml;
 }
-
-// // Display score
-//     document.getElementById("result").innerHTML =
-//     `<b>Tamper Score:</b> ${data.tamper_score.toFixed(2)}<br>
-//         <small>(0 = normal, 1 = likely tampered)</small>`;

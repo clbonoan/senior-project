@@ -719,7 +719,6 @@ def analyze_texture(image_input, visualize=True, compute_tamper_score=True, max_
 
     return result
 
-
 if __name__ == "__main__":
     result = analyze_texture("data/images/32-edited.jpg", visualize=True)
     print("\nExtracted features:", result["features"])
