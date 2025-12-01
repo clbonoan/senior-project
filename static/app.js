@@ -75,15 +75,35 @@ document.getElementById("uploadForm").addEventListener("submit", async (e) => {
     formData.append("file", fileInput.files[0]);
     formData.append("model", modelChoice);
 
-    // send to FastAPI
-    const response = await fetch("/process/", {
-        method: "POST",
-        body: formData
-    });
+    try {
+        // send to FastAPI
+        const response = await fetch("/process/", {
+            method: "POST",
+            body: formData
+        });
 
-    // read JSON response
-    const data = await response.json();
-    renderResults(data);
+        // read JSON response
+        const data = await response.json();
+        console.log("Response JSON from server:", data);
+
+        // if backend sent an error message, show it
+        if (!response.ok || data.error) {
+            resultBox.innerHTML = `
+                <div class="error">
+                    <b>Error:</b> ${data.error || ("HTTP " + response.status)}
+                </div>
+            `;
+            return;
+        }
+        renderResults(data);
+    } catch (err) {
+        console.error("Fetch or JSON parse error:", err)
+        resultBox.innerHTML = `
+            <div class="error">
+                <b>Client error:</b> ${err}
+            </div>
+        `;
+    }
 
 });
 
@@ -99,6 +119,16 @@ function formatVote(v) {
 
 function renderResults(data) {
     resultBox.innerHTML = "";
+
+    // backend-side error safeguard (in case it wasn't caught earlier)
+    if (data.error) {
+        resultBox.innerHTML = `
+            <div class="error">
+                <b>Error:</b> ${data.error}
+            </div>
+        `;
+        return;
+    }
     
     const scores = data.rule_based_scores;
     const votes = data.rule_based_votes;
@@ -106,19 +136,21 @@ function renderResults(data) {
     console.log("scores from server:", scores);
     console.log("votes from server:", votes);
     console.log("final vote from server:", data.final_rule_based_vote);
+    console.log("ml prediction:", data.ml_prediction);
+    console.log("ml probability tampered:", data.ml_probability_tampered);
 
-    let html = `
-        <h2>Rule-Based Detection</h2>
+    // LEFT SIDE is rule-based results
+    let ruleHtml = `
+        <h2>Rule-Based Detection Results</h2>
         <p><b>Final Consensus Decision:</b> ${formatVote(data.final_rule_based_vote)}</p>
         <p><b>Tamper Threshold:</b> ${data.threshold}</p>
+        <div class="feature-row">
     `;
-
-    html += `<div class="feature-row">`;
 
     for (const [feature, score] of Object.entries(scores)) {
         const vote = votes[feature];
 
-        let cardClass = "card-uncertain"; // default
+        let cardClass = "card-uncertain"; // default vidual for card
 
         if (vote === 1) {
             cardClass = "card-red";
@@ -126,22 +158,66 @@ function renderResults(data) {
             cardClass = "card-green";
         }
 
-        html += `
-        <div class="feature-card ${cardClass}">
-            <div class="feature-title">${feature.toUpperCase()}</div>
-            <div class="feature-score">
-            Score: ${score === null ? "N/A" : score.toFixed(3)}
+        ruleHtml += `
+            <div class="feature-card ${cardClass}">
+                <div class="feature-title">${feature.toUpperCase()}</div>
+                <div class="feature-score">
+                    Score: ${score === null ? "N/A" : score.toFixed(3)}
+                </div>
+                <div class="feature-vote">
+                    Vote: ${formatVote(vote)}
+                </div>
             </div>
-            <div class="feature-vote">
-            Vote: ${formatVote(vote)}
-            </div>
-        </div>
         `;
     }
 
-    html += `</div>`;
+    ruleHtml += `</div>`;
 
-    resultBox.innerHTML = html;
+    // if there are results to show for ML side, show them
+    const shouldShowMl = 
+        modelChoice === "ml" &&
+        data.ml_prediction !== null &&
+        data.ml_prediction !== undefined;
+
+    let finalHtml = "";
+
+    if (shouldShowMl) {
+        // RIGHT SIDE is ML based results
+        let mlHtml = `
+            <h2>ML Model (Logistic Regression) Results</h2>
+            <p><b>Prediction:</b> ${formatVote(data.ml_prediction)}</p>
+        `;
+
+        if (data.ml_probability_tampered !== null && data.ml_probability_tampered !== undefined) {
+            mlHtml += `
+                <p><b>Probability Tampered:</b> ${data.ml_probability_tampered.toFixed(3)}</p>
+            `;
+        } else {
+            mlHtml += `<p><i>No probability available</i></p>`;
+        }
+
+        finalHtml = `
+            <div class="results-container">
+                <div class="results-column">
+                    ${ruleHtml}
+                </div>
+                <div class="results-column">
+                    ${mlHtml}
+                </div>
+            </div>
+        `;
+    } else {
+        // only show rule based column if ml is not available
+        finalHtml = `
+            <div class="results-container">
+                <div class="results-column">
+                    ${ruleHtml}
+                </div>
+            </div>
+        `;
+    }
+
+    resultBox.innerHTML = finalHtml;
 }
 
 // // Display score
