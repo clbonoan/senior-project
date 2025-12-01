@@ -121,11 +121,11 @@ h3 {
 
 .upload-title {
   font-weight: 700;
-  font-size: 14px;
+  font-size: 18px;
 }
 
 .upload-info {
-  font-size: 12px;
+  font-size: 14px;
   color: black;
 }
 
@@ -144,6 +144,7 @@ h3 {
 
 #mlButton, #dlButton {
   font-family: "Mulish", sans-serif;
+  font-size: 14px;
   background: transparent;
   color: white;
   border: 2px solid #4CBB17;
@@ -172,6 +173,9 @@ h3 {
 }
 
 #analyzeButton {
+  height: 40px;
+  width: 90px;
+  font-size: 16px;
   padding: 5px 10px;
   border-radius: 8px;
   border: 1px solid #007BFF;
@@ -183,6 +187,20 @@ h3 {
 
 #analyzeButton:disabled {
   cursor: not-allowed;
+}
+
+.analyzing-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+#loadingIndicator {
+  margin-top: 20px;
+}
+
+#loadingIndicator.hidden {
+  display: None
 }
 
 #preview-container {
@@ -209,75 +227,77 @@ h3 {
 }
 
 .feature-card {
-    padding: 15px 20px;
-    border-radius: 10px;
-    text-align: center;
-    width: 220px;
-    background-color: #111;
-    border: 2px solid #666;   /* neutral gray border */
-    box-shadow: 0 0 10px rgba(0, 0, 0, 0.4);
-    transition: 0.3s ease;
+  padding: 15px 20px;
+  border-radius: 10px;
+  text-align: center;
+  width: 220px;
+  background-color: #111;
+  border: 2px solid #666;   /* gray border */
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.4);
+  transition: 0.3s ease;
 }
 
 /* row of cards */
 .feature-row {
-    display: flex;
-    gap: 20px;
-    justify-content: center;
-    margin-top: 30px;
+  display: flex;
+  gap: 20px;
+  justify-content: center;
+  margin-top: 30px;
 }
 
 /* text inside cards */
 .feature-title {
-    font-size: 20px;
-    font-weight: bold;
-    margin-bottom: 10px;
+  font-size: 20px;
+  font-weight: bold;
+  margin-bottom: 10px;
 }
 
 .feature-score,
 .feature-vote {
-    font-size: 16px;
-    margin: 5px 0;
+  font-size: 16px;
+  margin: 5px 0;
 }
 
 /* green = real */
 .card-green {
-    border-color: #2ecc71;
-    box-shadow: 0 0 10px rgba(46, 204, 113, 0.6);
+  border-color: #2ecc71;
+  box-shadow: 0 0 10px rgba(46, 204, 113, 0.6);
 }
 
 /* red = tampered */
 .card-red {
-    border-color: #e74c3c;
-    box-shadow: 0 0 10px rgba(231, 76, 60, 0.6);
+  border-color: #e74c3c;
+  box-shadow: 0 0 10px rgba(231, 76, 60, 0.6);
 }
 
-/* yellow/gray = uncertain */
+/* yellow/orange = uncertain */
 .card-uncertain {
-    border-color: #f1c40f;
-    box-shadow: 0 0 10px rgba(241, 196, 15, 0.6);
+  border-color: #f1c40f;
+  box-shadow: 0 0 10px rgba(241, 196, 15, 0.6);
 }
 
 /* vote text colors */
 .real {
-    color: #2ecc71;
-    font-weight: bold;
+  color: #2ecc71;
+  font-weight: bold;
 }
 
 .tampered {
-    color: #e74c3c;
-    font-weight: bold;
+  color: #e74c3c;
+  font-weight: bold;
 }
 
 .unknown {
-    color: #bdc3c7;
-    font-weight: bold;
+  color: #bdc3c7;
+  font-weight: bold;
 }
 
 .results-container {
-    display: flex;
-    gap: 1.5rem;
-    margin-top: 1rem;
+  display: flex;
+  gap: 1.5rem;
+  margin-top: 10px;
+  margin-left: 20px auto;
+  margin-right: 20px auto;
 }
 
 .results-column {
@@ -286,7 +306,7 @@ h3 {
 }
 
 #total-result-container {
-  margin: 10px auto;
+  padding: 40px;
 }
 
 p {
