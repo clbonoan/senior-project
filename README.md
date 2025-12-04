@@ -31,7 +31,8 @@ interface and receive tamper detection results from multiple analysis approaches
 - OpenCV and scikit-image (image processing)
 - PyTorch (deep learning)
 - scikit-learn (machine learning)
-- NumPy, SciPy, and pandas (numerical computations)
+- NumPy and SciPy (numerical computations)
+- pandas (data analysis)
 
 **Frontend:**
 - HTML/CSS/JavaScript
