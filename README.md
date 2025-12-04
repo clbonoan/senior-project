@@ -43,6 +43,7 @@ interface and receive tamper detection results from multiple analysis approaches
 - Python 3.12+
 - pip
 - Git
+- **Virtual environment is used**
 
 ## Dependencies
 - matplotlib (for visualization purposes during testing)
@@ -60,12 +61,21 @@ git clone https://github.com/clbonoan/senior-project
 cd senior-project
 ```
 
-2. Install required dependencies:
+2. Start virtual environment:
+**Windows**
+```bash
+C:\venvs\global\Scripts\Activate.ps1
+```
+**Mac**
+```bash
+source ~venvs/global/bin/activate
+```
+3. Install required dependencies:
 ```bash
 pip install [dependencies]
 ```
 
-3. Set up data directory:
+4. Set up data directory:
 ```bash
 cd data/images
 ```
