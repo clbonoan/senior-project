@@ -28,10 +28,10 @@ interface and receive tamper detection results from multiple analysis approaches
 **Backend:**
 - Python (3.13.7)
 - FastAPI
-- OpenCV (image processing)
+- OpenCV and scikit-image (image processing)
 - PyTorch (deep learning)
 - scikit-learn (machine learning)
-- NumPy (numerical computations)
+- NumPy, SciPy, and pandas (numerical computations)
 
 **Frontend:**
 - HTML/CSS/JavaScript
@@ -48,11 +48,14 @@ interface and receive tamper detection results from multiple analysis approaches
 ## Dependencies
 - matplotlib (for visualization purposes during testing)
 - opencv-python
+- scikit-image
 - pandas
 - scikit-learn
 - uvicorn
 - fastapi
 - numpy
+- scipy
+
 
 ## Installation
 1. Clone the repository:
