@@ -81,7 +81,7 @@ cd data/images
 ```
 
 > [!NOTE]
-> Place your iamges in 'data/images/' (this directory is not tracked in Git and does not have images used for train/test)
+> Place your images in 'data/images/' (this directory is not tracked in Git and does not have images used for train/test)
 
 ## Usage
 
@@ -98,13 +98,11 @@ python scripts/extract_csv.py --images data/images --labels data/labels.csv --fe
 - Saves measurements to 'data/features.csv'
 
 ### Running the Web Application
+Start the FastAPI backend and enable auto-reload as project files change:
 ```bash
-# Start the FastAPI backend and enable auto-reload as project files change
 uvicorn main:app --reload
-
-# Access the web interface
-# Open your browser and navigate to http://127.0.0.1:8000
 ```
+Access the web interface, open your browser, and navigate to http://127.0.0.1:8000
 
 ## Project Structure
 ```
