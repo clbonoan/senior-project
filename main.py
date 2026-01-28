@@ -74,7 +74,7 @@ async def process_image(
     img = cv.imdecode(np_img, cv.IMREAD_COLOR)
 
     if img is None:
-        return JSONResponse({"error": "Could not read uploaded image."}, status_Code = 400)
+        return JSONResponse({"error": "Could not read uploaded image."}, status_code = 400)
     
     # run all the rule-based parts of the analyzers
     scores: dict[str, float | None] = {}
