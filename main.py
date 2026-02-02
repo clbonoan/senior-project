@@ -1,11 +1,6 @@
-from fastapi import FastAPI, UploadFile, File, Form
-from fastapi.responses import FileResponse, HTMLResponse
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
-from fastapi.requests import Request
-from fastapi.responses import JSONResponse
+from flask import Flask, request, jsonify, render_template
 
-import shutil
+#import shutil
 import os
 import cv2 as cv
 import numpy as np 
@@ -16,46 +11,41 @@ from texture import analyze_texture
 from lighting import analyze_lighting
 from depth import analyze_depth
 
-app = FastAPI()
-
-#to load images and style.css 
-app.mount("/static", StaticFiles(directory="static"), name="static")
-#connects fastapi to .htmlfile
-templates = Jinja2Templates(directory="templates")
+#app = FastAPI()
+app = Flask(__name__)
 
 #uploaded files go in uploads
-UPLOAD_DIR = "static/uploads"
-#processed files go in processed
-OUTPUT_DIR = "static/processed"
+UPLOAD_DIR = os.path.join("static", "uploads")
 
 # load ML model (scaled logistic regression pipeline)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ML_MODEL_PATH = os.path.join(BASE_DIR, "data", "logreg-scaled.joblib")
+
 ml_bundle = joblib.load(ML_MODEL_PATH)
 ml_model = ml_bundle["model"]
 ml_feature_cols = ml_bundle["feature_cols"]
 print("Loaded ML feature columns:", ml_feature_cols)
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
-os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 #when website is visited, it calls index.html 
-@app.get("/", response_class=HTMLResponse)
-async def upload_page(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+@app.route("/", methods=["GET"])
+def upload_page():
+    return render_template("index.html")
 
-@app.get("/about", response_class=HTMLResponse)
-async def about(request: Request):
-    return templates.TemplateResponse("about.html", {"request": request})
+@app.route("/about", methods=["GET"])
+def about():
+    return render_template("about.html")
 
-@app.get("/info", response_class=HTMLResponse)
-async def info(request: Request):
-    return templates.TemplateResponse("info.html", {"request": request})
+@app.route("/info", methods=["GET"])
+def info():
+    return render_template("info.html")
 
-@app.get("/repo", response_class=HTMLResponse)
-async def repo(request: Request):
-    return templates.TemplateResponse("repo.html", {"request": request})
+@app.route("/repo", methods=["GET"])
+def repo():
+    return render_template("repo.html")
 
+# helper
 def extract_tamper_score(result) -> float | None:
     if isinstance(result, dict) and "tamper_score" in result:
         try:
@@ -64,25 +54,35 @@ def extract_tamper_score(result) -> float | None:
             return None
     return None
 
-@app.post("/process/")
-async def process_image(
-    file: UploadFile = File(...), 
-    model: str = Form("ml")
-):
-    contents = await file.read()
+# API
+@app.route("/process/", methods=["POST"])
+def process_image():
+    # validate upload
+    if "file" not in request.files:
+        return jsonify(error="No file uploaded"), 400
+    
+    file = request.files["file"]
+    if not file or file.filename == "":
+        return jsonify(error="Empty filename / no file selected."), 400
+    
+    # model selector (ml or dl)
+    model = request.form.get("model", "ml")
+
+    # read bytes -> opencv image
+    contents = file.read()
     np_img = np.frombuffer(contents, np.uint8)
     img = cv.imdecode(np_img, cv.IMREAD_COLOR)
 
     if img is None:
-        return JSONResponse({"error": "Could not read uploaded image."}, status_code = 400)
+        return jsonify(error="Could not read uploaded image."), 400
     
     # run all the rule-based parts of the analyzers
-    scores: dict[str, float | None] = {}
+    scores = {}
 
     # make sure these exist even if analysis fails
-    texture_features: dict[str, float] = {}
-    lighting_features: dict[str, float] = {}
-    depth_features: dict[str, float] = {}
+    texture_features = {}
+    lighting_features = {}
+    depth_features = {}
 
     # texture
     try:
@@ -125,7 +125,7 @@ async def process_image(
     THRESHOLD_TAMPER = 0.65
     THRESHOLD_REAL = 0.45
 
-    votes: dict[str, int | None] = {}
+    votes = {}
     num_ones = 0
     num_zeros = 0
 
@@ -158,13 +158,13 @@ async def process_image(
     valid_scores = [s for s in scores.values() if isinstance(s, (int, float))]
     overall_rule_based = float(np.mean(valid_scores)) if valid_scores else None
  
-    # ML Prediction only when model == "ml"
-    ml_prediction: int | None = None
-    ml_probability: float | None = None
+    # ML prediction only when model == "ml"
+    ml_prediction = None
+    ml_probability = None
 
     if model == "ml":
         # ML feature response
-        combined_ml_features: dict[str, float] = {}
+        combined_ml_features = {}
 
         def add_prefixed(prefix: str, feats: dict):
             for k, v in feats.items():
@@ -207,19 +207,24 @@ async def process_image(
                 print("Model has no predict_proba; probability not available.")
         except Exception as e:
             print("Error during ML prediction:", e)
+            ml_prediction = None
+            ml_probability = None
 
 
-    return JSONResponse({
-        "threshold": THRESHOLD_TAMPER,
-        "rule_based_scores": scores,
-        "rule_based_votes": votes,
-        "overall_rule_based_score": overall_rule_based,
-        "final_rule_based_vote": final_vote,     # 0=real, 1=tampered, None=unknown
+    return jsonify(
+        threshold = THRESHOLD_TAMPER,
+        rule_based_scores = scores,
+        rule_based_votes = votes,
+        overall_rule_based_score = overall_rule_based,
+        final_rule_based_vote = final_vote,     # 0=real, 1=tampered, None=unknown
 
         # ML output
-        "ml_prediction": ml_prediction,             # 0=real, 1=tampered, None=error
-        "ml_probability_tampered": ml_probability,  # probability of class 1
-        "ml_feature_cols": ml_feature_cols,         # list of all feature names
+        ml_prediction =  ml_prediction,             # 0=real, 1=tampered, None=error
+        ml_probability_tampered =  ml_probability,  # probability of class 1
+        ml_feature_cols =  ml_feature_cols,         # list of all feature names
         # DEBUGGING
         #"ml_features_used": combined_ml_features,
-    })
+    ), 200
+
+if __name__ == "__main__":
+    app.run(debug=True)

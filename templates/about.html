@@ -3,15 +3,15 @@
   
 <head>
   <title>Shadow Check</title>
- <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
- <link rel ="icon" type="image/x-icon" href="{{ url_for('static', path='favicon.png')}}">
+ <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+ <link rel ="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.png')}}">
 </head>
 <body>
    <nav class="navbar">
     <div class="nav-left">
 
       <a href="/">
-        <img src="{{ url_for('static', path='/favicon.png') }}" alt="Home" class="nav-logo">
+        <img src="{{ url_for('static', filename='favicon.png') }}" alt="Home" class="nav-logo">
       </a>
     </div>
     <div class="nav-right">
