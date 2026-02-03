@@ -34,26 +34,36 @@ let modelChoice = null;
 
 function setActive(whichId) {
     mlButton.classList.toggle("active", whichId === "mlButton");
-    dlButton.classList.toggle("active", whichId === "dlButton");
+    // dlButton.classList.toggle("active", whichId === "dlButton");
 }
 setActive(null);  // clear initial selection
 
 mlButton.addEventListener("click", () => {
+    if (!fileInput.files.length) return;
     modelChoice = "ml";
     setActive("mlButton");
     refreshAnalyzeState();
 });
 
-dlButton.addEventListener("click", () => {
-    modelChoice = "dl";
-    setActive("dlButton");
-    refreshAnalyzeState();
-});
+// dlButton.addEventListener("click", () => {
+//     modelChoice = "dl";
+//     setActive("dlButton");
+//     refreshAnalyzeState();
+// });
 
 // analyze button state
 function refreshAnalyzeState() {
     const hasModel = !!modelChoice;
     const hasFile = fileInput.files.length > 0;
+
+    // disable ml button until a file is chosen
+    mlButton.disabled = !hasFile;
+
+    // if the file is removed, clear the button
+    if (!hasFile) {
+        modelChoice = null;
+        setActive(null);
+    }
 
     analyzeButton.hidden = !hasModel;
     analyzeButton.disabled = !(hasModel && hasFile);

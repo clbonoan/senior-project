@@ -1,7 +1,6 @@
 # Detecting Image Tampering Through Shadow Features in Urban Infrastructure
 This is a full-stack web application that detects image manipulation by analyzing shadow 
-inconsistencies in ground-level images using rule-base algorithms, machine learning,
-and deep learning models.
+inconsistencies in ground-level images using rule-base algorithms and machine learning.
 
 **Project Timeline:** Fall 2025 - Spring 2026
 **California State University, Bakersfield - Computer Science Senior Design**
@@ -13,7 +12,6 @@ interface and receive tamper detection results from multiple analysis approaches
 
 - **Rule-base analysis:** manual threshold-based detection with explainable features
 - **Machine Learning model:** traditional ML using manually engineered features
-- **Deep Learning model:** automated feature extraction using neural networks
 
 ## Features
 - Interactive web interface for image upload and analysis output
@@ -29,7 +27,6 @@ interface and receive tamper detection results from multiple analysis approaches
 - Python (3.13.7)
 - FastAPI
 - OpenCV and scikit-image (image processing)
-- PyTorch (deep learning)
 - scikit-learn (machine learning)
 - NumPy and SciPy (numerical computations)
 - pandas (data analysis)
@@ -153,12 +150,6 @@ Access the web interface, open your browser, and navigate to http://127.0.0.1:80
 - ML model learns weights for the same features
 - Provides interpretable results with decision boundaries
 
-**Deep Learning Path:**
-- Automatically learns features from raw image data
-- Uses convolutional neural networks 
-- Higher computational cost but potentially more accurate
-- Currently implemented for texture feature; lighting and depth in progress
-
 ## Dataset
 
 - **Current size:** 68 ground-level images
@@ -172,13 +163,11 @@ Access the web interface, open your browser, and navigate to http://127.0.0.1:80
 - Shadow detection and analysis algorithms for all three features
 - Rule-based classification system
 - Traditional ML model training and inference
-- Deep learning model for texture feature
 - Full-stack web application with FastAPI backend
 - User interface with two analysis modes
 - Initial dataset of 68 images
 
 **In Progress (Spring 2026):**
-- Deep learning implementation for lighting and depth features
 - Algorithm optimization and refactoring
 - Dataset expansion
 - Suspicious region visualization on output images
