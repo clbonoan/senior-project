@@ -4,7 +4,6 @@ const preview = document.getElementById("preview");
 const upload = document.getElementById("customUpload");
 const analyzeButton = document.getElementById("analyzeButton");
 const mlButton = document.getElementById("mlButton");
-const dlButton = document.getElementById("dlButton");
 const resultBox = document.getElementById("result");
 const loadingIndicator = document.getElementById("loadingIndicator");
 
@@ -32,31 +31,31 @@ fileInput.addEventListener("change", () => {
 // toggle for which model to use (read flags on submit)
 let modelChoice = null;
 
-function setActive(whichId) {
-    mlButton.classList.toggle("active", whichId === "mlButton");
-    dlButton.classList.toggle("active", whichId === "dlButton");
-}
-setActive(null);  // clear initial selection
+// function setActive(whichId) {
+//     mlButton.classList.toggle("active", whichId === "mlButton");
+//     // dlButton.classList.toggle("active", whichId === "dlButton");
+// }
+// setActive(null);  // clear initial selection
 
-mlButton.addEventListener("click", () => {
-    modelChoice = "ml";
-    setActive("mlButton");
-    refreshAnalyzeState();
-});
+// mlButton.addEventListener("click", () => {
+//     if (!fileInput.files.length) return;
+//     modelChoice = "ml";
+//     setActive("mlButton");
+//     refreshAnalyzeState();
+// });
 
-dlButton.addEventListener("click", () => {
-    modelChoice = "dl";
-    setActive("dlButton");
-    refreshAnalyzeState();
-});
+// dlButton.addEventListener("click", () => {
+//     modelChoice = "dl";
+//     setActive("dlButton");
+//     refreshAnalyzeState();
+// });
 
 // analyze button state
 function refreshAnalyzeState() {
-    const hasModel = !!modelChoice;
+    // const hasModel = !!modelChoice;
     const hasFile = fileInput.files.length > 0;
 
-    analyzeButton.hidden = !hasModel;
-    analyzeButton.disabled = !(hasModel && hasFile);
+    analyzeButton.hidden = !hasFile;
 }
 refreshAnalyzeState();
 
@@ -83,6 +82,7 @@ document.getElementById("uploadForm").addEventListener("submit", async (e) => {
     }
 
     const formData = new FormData();
+    modelChoice = "ml"
     formData.append("file", fileInput.files[0]);
     formData.append("model", modelChoice);
 
@@ -232,7 +232,7 @@ function buildRuleBasedExplanation(data) {
 
     if (consistent.length) {
         parts.push(`
-            <b>Real-looking cues:</b> ${consistent.map(f => f.toUpperCase()).join(", ")}.
+            <b>Realistic cues:</b> ${consistent.map(f => f.toUpperCase()).join(", ")}.
         `);
     }
 
