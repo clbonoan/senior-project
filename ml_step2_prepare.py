@@ -1,5 +1,6 @@
 # script to prepare X and y and train/test split images
 import pandas as pd
+import numpy as np
 from sklearn.model_selection import train_test_split
 
 # load and read the csv file
@@ -29,6 +30,25 @@ print("\nNon-numeric feature columns:", list(non_numeric_cols))
 
 if len(non_numeric_cols) > 0:
     raise ValueError("Non-numeric columns found. Clean before training data")
+
+# print("label dtype:", df["label"].dtype)
+# print("df label isna sum:", df["label"].isna().sum())
+# 
+#If you already created y earlier, print its details too:
+# print("y type:", type(y))
+# print("y dtype:", getattr(y, "dtype", None))
+# print("y length:", len(y))
+# 
+#Check NaNs in y robustly (works for pandas Series or numpy array)
+# y_arr = np.asarray(y, dtype=float)  # force float so we can test isnan
+# print("NaNs in y (np.isnan):", np.isnan(y_arr).sum())
+# 
+#Show indices where y is NaN
+# nan_idx = np.where(np.isnan(y_arr))[0]
+# print("NaN indices:", nan_idx[:20])
+# if len(nan_idx) > 0:
+    #If y came from df without shuffling, this should line up:
+    # print("Rows in df at NaN indices:\n", df.iloc[nan_idx][["filename", "label"]])
 
 # create train/test split (68 images: 80% train, 20% test)
 X_train, X_test, y_train, y_test = train_test_split(

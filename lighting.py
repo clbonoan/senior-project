@@ -280,22 +280,56 @@ def find_bright_nearby(img_bgr, shadow_mask, brightness, expand=4, color_diff=0.
     if eroded.sum() < 50:
         eroded = sm  # fallback
     
-    # average color inside shadow
-    avg_color = color_direction[eroded].mean(axis=0, keepdims=True)
-    
+    # average color inside shadow (shape (3,))
+    avg_color = color_direction[eroded].mean(axis=0).astype(np.float32)
+
+    # guard against NaN/Inf
+    avg_color = np.nan_to_num(avg_color, nan=0.0, posinf=0.0, neginf=0.0)
+
+    # if avg_color is basically zero, can't do cosine compare
+    avg_norm = float(np.linalg.norm(avg_color))
+    if avg_norm < 1e-8:
+        return ring
+    avg_color = avg_color / avg_norm  # normalized (3,)
+
     # check which ring pixels have similar color
     ring_indices = np.flatnonzero(ring.ravel())
-    ring_colors = color_direction.reshape(-1,3)[ring_indices]
+    if ring_indices.size == 0:
+        return None
     
-    # cosine distance
-    # matrix multiplication @
-    similarity = 1.0 - (ring_colors @ avg_color.T).ravel()
+    ring_colors = color_direction.reshape(-1,3)[ring_indices].astype(np.float32)
+    ring_colors = np.nan_to_num(ring_colors, nan=0.0, posinf=0.0, neginf=0.0) 
     
-    # keep similar colors
-    similar = np.zeros(ring.size, bool)
-    similar[ring_indices[similarity >= (1.0 - color_diff)]] = True
+    # clip extreme values (in case get_rgb_direction made huge numbers)
+    ring_colors = np.clip(ring_colors, -10.0, 10.0)
+    avg_color = np.clip(avg_color, -10.0, 10.0)
+
+    # normalize each ring color vector (cosine similarity)
+    ring_norm = np.linalg.norm(ring_colors, axis=1, keepdims=True)
+    ring_norm[ring_norm < 1e-8] = 1e-8
+    ring_colors = ring_colors / ring_norm
+
+    # NO MATMUL: dot product per row 
+    # dot[i] = ring_colors[i] dot avg_color
+    dot = np.sum(ring_colors * avg_color[None, :], axis=1)
+
+    # safety
+    dot = np.nan_to_num(dot, nan=0.0, posinf=0.0, neginf=0.0)
+    dot = np.clip(dot, -1.0, 1.0)
+
+    # similarity as "distance-like": 0 means very similar, 2 means opposite
+    similarity = 1.0 - dot
+
+    # keep similar colors:
+    # if dot product is close to 1, similarity is close to 0 (good match)
+    # original threshold logic was: similarity >= (1 - color_diff)
+    # which is backwards for cosine similarity
+    keep = dot >= (1.0 - color_diff)
+
+    similar = np.zeros(ring.size, dtype=bool)
+    similar[ring_indices[keep]] = True
     result = similar.reshape(ring.shape)
-    
+
     # require minimum pixels or return ring if there aren't enough pixels
     if result.sum() > 100:
         return result
@@ -676,7 +710,7 @@ def calculate_light_tamper_score(ml_features):
 # ---------------------------------------------------
 # CHOOSING IMAGE 
 # ---------------------------------------------------
-def analyze_lighting(image_path, show_debug=False, compute_tamper_score=True):
+def analyze_lighting(image_path, show_debug=False, compute_tamper_score=False):
     # print tamper score
     # similar to texture.py
     # img = cv2.imread(image_path, cv2.IMREAD_COLOR)
@@ -700,9 +734,9 @@ def analyze_lighting(image_path, show_debug=False, compute_tamper_score=True):
     # extract ML features
     features = extract_features(img, mask, debug=show_debug, viz=viz)
 
-    # calculate tamper score (rule-based)
+    # calculate tamper score (rule-based path only)
     tamper_score = None
-    if compute_tamper_score:
+    if compute_tamper_score and tamper_score is not None:
         tamper_score = calculate_light_tamper_score(features)
         print(f"\n{'='*60}")
         print(f"LIGHTING TAMPER SCORE: {tamper_score:.3f}")

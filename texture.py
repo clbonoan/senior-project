@@ -127,21 +127,177 @@ def lbp_map(gray):
             out[i,j] = lbp_calculated_pixel(gray, i, j)
     return out
 
-def lbp_hist(patch):
-    # 8-neighbor lbp -> values 0 to 255
-    # histogram for local texture pattern distribution
-    hist, _ = np.histogram(patch.ravel(), bins=256, range=(0,256), density=True)
-    return hist
+# def lbp_hist(patch):
+#     # 8-neighbor lbp -> values 0 to 255
+#     # histogram for local texture pattern distribution
+#     hist, _ = np.histogram(patch.ravel(), bins=256, range=(0,256), density=True)
+#     return hist
+
+def patch_entropy(lbp_u8, mask_u8=None, patch_size=40):
+    '''
+    divide the image into patches and find LBP entropy per patch to see if there were
+    any copied textures (from clone stamping)
+    '''
+
+    height, width = lbp_u8.shape[:2]
+    entropy_list = []
+    entropy_inside = []     # entropy for patches inside shadow
+    entropy_outside = []    # entropy for patches outside shadow
+    
+    # looping over patches
+    for y in range(0, height - patch_size + 1, patch_size):
+        for x in range(0, width - patch_size + 1, patch_size):
+            # split the image into patches/tiles
+            row_start = y
+            row_end = y + patch_size
+            col_start = x
+            col_end = x + patch_size
+            # use .ravel() to make 2D grid into a single list so np.bincount() can use the 1D list
+            patch = lbp_u8[row_start:row_end, col_start:col_end].ravel()
+
+            # compute entropy with a histogram (list of probabilities based on how often
+            # each pixel value (0-255) showed up in a patch)
+            hist = np.bincount(patch, minlength=256).astype(np.float32)
+            small_value = 1e-12     # prevent dividing by zero and log(0) errors
+            hist /= hist.sum() + small_value
+            # entropy = -(sum of all: probability of pixel appearing * log(probability))
+            entropy = -float(np.sum(hist * np.log(hist + small_value)))
+            entropy_list.append(entropy)
+
+            # separate entropy by inside and outside mask
+            if mask_u8 is not None:
+                mask_patch = mask_u8[row_start:row_end, col_start:col_end].ravel()
+                fraction_inside = (mask_patch > 0).sum() / mask_patch.size
+                if fraction_inside >= 0.7:
+                    '''
+                    place entropy value in inside list if more than 70% of the patch is
+                    inside a shadow found by the shadow mask; between 30-70% is not used
+                    because those may represent patches that are on a shadow edge (hard to identify)
+                    '''
+                    entropy_inside.append(entropy)
+                elif fraction_inside <= 0.3:
+                    entropy_outside.append(entropy) 
+
+    # return 0 if no patches were found
+    if len(entropy_list) == 0:
+        return {
+            "patch_entropy_mean": 0.0,
+            "patch_entropy_std": 0.0,
+            "patch_entropy_max": 0.0,
+            "patch_entropy_min": 0.0,
+            "patch_entropy_in_mean": 0.0,
+            "patch_entropy_out_mean": 0.0,
+            "patch_entropy_outlier_frac": 0.0
+        }
+    
+    entropy_arr = np.array(entropy_list)
+    mean = float(entropy_arr.mean())
+    std = float(entropy_arr.std())
+
+    # patches that are more than 2 standard deviations from mean
+    if std > 1e-6:
+        outlier_frac = float(np.mean(np.abs(entropy_arr - mean) > 2.0 * std))
+    else:
+        outlier_frac = 0.0
+
+    return {
+        "patch_entropy_mean": mean,
+        "patch_entropy_std": std,
+        "patch_entropy_max": float(entropy_arr.max()),
+        "patch_entropy_min": float(entropy_arr.min()),
+        "patch_entropy_in_mean": float(np.mean(entropy_inside)) if entropy_inside else 0.0,
+        "patch_entropy_out_mean": float(np.mean(entropy_outside)) if entropy_outside else 0.0,
+        "patch_entropy_outlier_frac": outlier_frac
+    }
+                    
+def clone_detection(L8_u8, patch_size=40, max_patches=100, similar_thresh=0.95):
+    '''
+    sample patches throughout the image and compare them to each other; if two patches
+    look very similar, possibly copy-pasted (clone stamped).
+    return highest similarity found and how many pairs were similar (suspicious)
+    '''
+
+    height, width = L8_u8.shape[:2]
+    patches = []
+
+    # evenly spread patches across image instead of checking every single spot
+    # step is how many pixels to move down before starting next row of patches
+    step_y = max(patch_size, height // int(np.sqrt(max_patches)))   
+    step_x = max(patch_size, width // int(np.sqrt(max_patches)))
+
+    for y in range(0, height - patch_size + 1, step_y):
+        for x in range(0, width - patch_size + 1, step_x):
+            row_start = y 
+            row_end = y + patch_size
+            col_start = x 
+            col_end = x + patch_size
+            patch = L8_u8[row_start:row_end, col_start:col_end].astype(np.float32)
+
+            # shrink the patch from 24x24 to 8x8 -> faster (less) comparisons and less sensitive
+            # average the pixels in each area when shrinking so you don't lose overall pattern
+            small_patch = cv2.resize(patch, (8,8), interpolation=cv2.INTER_AREA).ravel()
+
+            # subtract average brightness so patterns are compared, not brightness
+            # ex: if you have identical patches but one is in shade and one is in light,
+            # they will look different without subtracting avg brightness
+            small_patch = small_patch - small_patch.mean()
+            patch_length = np.linalg.norm(small_patch)
+            if patch_length < 1e-6:     # skip flat/empty patches
+                continue
+
+            # skip patches that are nearly uniform like the sky
+            # variance of the normalized patch values
+            if np.var(small_patch) < 0.01:
+                continue
+            
+            small_patch = small_patch / patch_length
+            #patches.append(small_patch)
+            patches.append({"vec": small_patch, "row": row_start, "col": col_start})
+
+            if len(patches) >= max_patches:
+                break
+        if len(patches) >= max_patches:
+            break
+    
+    num_patches = len(patches)
+    if num_patches < 2:
+        return {
+            "clone_similar_max": 0.0, 
+            "clone_similar_count": 0
+        }
+    
+    # compare every patch against every other patch (brute force)
+    similarities = []
+    suspicious_pairs = 0
+
+    for i in range(num_patches):
+        for j in range(i + 1, num_patches):
+            # dot product of two normalized vectors = cosine similarity (1.0 = identical)
+            similarity = float(np.dot(patches[i]["vec"], patches[j]["vec"]))
+            similarities.append(similarity)
+            if similarity >= similar_thresh:
+                # guard: patches must be far enough apart to be suspicious
+                dist = np.sqrt((patches[i]["row"] - patches[j]["row"])**2 + 
+                                (patches[i]["col"] - patches[j]["col"])**2)
+                if dist > patch_size * 2:   # must be at least 2 patch-widths apart
+                    suspicious_pairs += 1
+
+    if len(similarities) == 0:
+        return {"clone_similar_max": 0.0, "clone_similar_count": 0}
+    
+    max_similarity = float(np.array(similarities).max())
+    return {"clone_similar_max": max_similarity, "clone_similar_count": int(suspicious_pairs)}, patches
+
 
 # ----------------------------------------------------------
 # TEXTURE COMPARISON AND HELPERS FOR TAMPER SCORE
 # compare texture between shadow patches and nearby lit patches
 # ----------------------------------------------------------
-def chi2(a, b, eps=1e-9):
-    # chi-squared distance between two histograms (measuring texture simularity)
-    d = (a - b)
-    s = (a + b) + eps
-    return 0.5 * np.sum((d * d) / s)
+# def chi2(a, b, eps=1e-9):
+#     # chi-squared distance between two histograms (measuring texture simularity)
+#     d = (a - b)
+#     s = (a + b) + eps
+#     return 0.5 * np.sum((d * d) / s)
 
 def pairs_one_per_component(
     mask_u8, L8, lbp, gx, gy,
@@ -183,14 +339,14 @@ def pairs_one_per_component(
             continue
 
         # grab shadow component    
-        comp = (labels == i).astype(np.uint8) * 255
-        boundary = cv2.morphologyEx(comp, cv2.MORPH_GRADIENT, k3)
+        component = (labels == i).astype(np.uint8) * 255
+        boundary = cv2.morphologyEx(component, cv2.MORPH_GRADIENT, k3)
         
         if boundary.sum() == 0:
             continue
 
         # find a good point inside the shadow that is far from edges
-        dist = cv2.distanceTransform((comp > 0).astype(np.uint8), cv2.DIST_L2, 5)
+        dist = cv2.distanceTransform((component > 0).astype(np.uint8), cv2.DIST_L2, 5)
         yi_in, xi_in = np.unravel_index(np.argmax(dist), dist.shape)
         yi_in = int(np.clip(yi_in, s, h - s - 1))
         xi_in = int(np.clip(xi_in, s, w - s - 1))
@@ -213,20 +369,26 @@ def pairs_one_per_component(
         if nrm > 1e-3:
             # gradient direction
             nx, ny = g[0] / nrm, g[1] / nrm
-        else:
             # use direction from center to boundary
-            M = cv2.moments(comp, binaryImage=True)
+            # .moments computes stats about the shape of the shadow mask
+            # m00 - total num of white pixels (area of shadow)
+            # m10 - sum of all pixel x-coords (dividing by m00 gives you the avg x (the centroid))
+            # m01 - sum of all pixel y-coords (avg y)
+            shadow_moments = cv2.moments(component, binaryImage=True)
             # total area in shadow; if area is 0 (empty shadow), use bound point as center
-            if abs(M["m00"]) < 1e-6:
+            if abs(shadow_moments["m00"]) < 1e-6:
                 cx, cy = xb, yb
             else:
-                # calculate actual center
+                # calculate actual center (centroid - geometric center of shadow region)
                 # average x = sum of all x values / num of pixels
-                cx = M["m10"] / M["m00"] 
-                cy = M["m01"] / M["m00"]
-            v = np.array([xb - cx, yb - cy], dtype=np.float32)
-            vn = np.linalg.norm(v)
-            nx, ny = (v / vn) if vn > 1e-6 else (1.0, 0.0)
+                cx = shadow_moments["m10"] / shadow_moments["m00"] 
+                cy = shadow_moments["m01"] / shadow_moments["m00"]
+            center_to_boundary = np.array([xb - cx, yb - cy], dtype=np.float32)
+            center_to_boundary_magnitude = np.linalg.norm(center_to_boundary)
+            if center_to_boundary_magnitude > 1e-6:
+                nx, ny = (center_to_boundary / center_to_boundary_magnitude)
+            else:
+                (1.0, 0.0)
 
         # get the inside shadow patch
         yi_samp = int(np.clip(yb - in_offset * ny, s, h - s - 1))
@@ -241,7 +403,7 @@ def pairs_one_per_component(
         xo = int(np.clip(xb + step * nx, s, w - s - 1))
         
         # keep moving outward until outside the shadow
-        while step < max_step and comp[yo, xo] > 0:
+        while step < max_step and component[yo, xo] > 0:
             step += 2
             yo = int(np.clip(yb + step * ny, s, h - s - 1))
             xo = int(np.clip(xb + step * nx, s, w - s - 1))
@@ -291,6 +453,8 @@ def pairs_one_per_component(
 
     return chi2_list, patch_pairs
 
+
+
 # ----------------------------------------------------------
 # FEATURE EXTRACTION
 # ----------------------------------------------------------
@@ -318,16 +482,16 @@ def extract_features(
     mask = mask.astype(np.uint8)
     boundary = boundary_from_mask(mask)
 
-    in_m = mask > 0
-    out_m = ~in_m
+    # in_m = mask > 0
+    # out_m = ~in_m
 
     # coverage/edges
     '''
     mask_frac = how much of the image is covered by a detected shadow
     boundary_frac = how long or detailed the shadow edge is compared to the whole image
     '''
-    ml_features["mask_frac"] = float(in_m.mean())
-    ml_features["boundary_frac"] = float((boundary > 0).mean())
+    # ml_features["mask_frac"] = float(in_m.mean())
+    # ml_features["boundary_frac"] = float((boundary > 0).mean())
 
     # luminance contrast (means/stds only)
     '''
@@ -338,20 +502,20 @@ def extract_features(
     contrast_shadow_vs_non = how strong the brightness drop is from light to shadow
     (ratio of how dark the shadow region is compared to the lit area)
     '''
-    if in_m.any():
-        mu_in, sd_in = mean_std(L8[in_m])
-    else:
-        mu_in, sd_in = 0.0, 0.0
-    if out_m.any():
-        mu_out, sd_out = mean_std(L8[out_m])
-    else:
-        mu_out, sd_out = 0.0, 0.0 
+    # if in_m.any():
+    #     mu_in, sd_in = mean_std(L8[in_m])
+    # else:
+    #     mu_in, sd_in = 0.0, 0.0
+    # if out_m.any():
+    #     mu_out, sd_out = mean_std(L8[out_m])
+    # else:
+    #     mu_out, sd_out = 0.0, 0.0 
 
-    ml_features["L_in_mean"] = mu_in
-    ml_features["L_in_std"]  = sd_in
-    ml_features["L_out_mean"] = mu_out
-    ml_features["L_out_std"]  = sd_out
-    ml_features["contrast_shadow_vs_non"] = (mu_out - mu_in) / (mu_out + 1e-6)
+    # ml_features["L_in_mean"] = mu_in
+    # ml_features["L_in_std"]  = sd_in
+    # ml_features["L_out_mean"] = mu_out
+    # ml_features["L_out_std"]  = sd_out
+    # ml_features["contrast_shadow_vs_non"] = (mu_out - mu_in) / (mu_out + 1e-6)
 
     # texture entropy (LBP)
     '''
@@ -359,8 +523,8 @@ def extract_features(
     inside vs outside entropy comparison tells whether the shadowed region kept the same --
     texture randomness as the lit area
     '''
-    ml_features["lbp_entropy_in"]  = lbp_entropy_np(lbp, region=mask)
-    ml_features["lbp_entropy_out"] = lbp_entropy_np(lbp, region=(255 - mask))
+    # ml_features["lbp_entropy_in"]  = lbp_entropy_np(lbp, region=mask)
+    # ml_features["lbp_entropy_out"] = lbp_entropy_np(lbp, region=(255 - mask))
 
     # shadow component shape (minimal)
     '''
@@ -370,7 +534,7 @@ def extract_features(
     - how irregular the boundaries are
     - ^ helps describe whether the detected shadow is one smooth region or lots of tiny parts (noisy)
     '''
-    ml_features.update(component_stats_min(mask))
+    # ml_features.update(component_stats_min(mask))
 
     # boundary geometry consistency
     '''
@@ -405,8 +569,37 @@ def extract_features(
     ml_features["share_low_chi2"]  = float(np.mean(d_arr <= (ml_features["chi2_p25"] if d_arr.size else 0.0))) if d_arr.size else 0.0
     ml_features["share_high_chi2"] = float(np.mean(d_arr >= (ml_features["chi2_p75"] if d_arr.size else 0.0))) if d_arr.size else 0.0
 
+    # use lbp and mask to produce simple patch entropy features
+    try:
+        entropy_feats = patch_entropy(lbp.astype(np.uint8), mask.astype(np.uint8), patch_size=40)
+    except Exception:
+        # use default values instead of crashing
+        entropy_feats = {
+            "patch_entropy_mean": 0.0,
+            "patch_entropy_std": 0.0,
+            "patch_entropy_max": 0.0,
+            "patch_entropy_min": 0.0,
+            "patch_entropy_in_mean": 0.0,
+            "patch_entropy_out_mean": 0.0,
+            "patch_entropy_outlier_frac": 0.0        
+        }
+    ml_features.update(entropy_feats)
+
+    # clone stamp detection features
+    try:
+        # save patch positions for visualization
+        clone_feats, _ = clone_detection(L8.astype(np.uint8), patch_size=40, max_patches=100, similar_thresh=0.95)
+    except Exception:
+        # use default values instead of crashing
+        clone_feats = {
+            "clone_similar_max": 0.0,
+            "clone_similar_count": 0
+        }    
+    ml_features.update(clone_feats)
+
     return ml_features
 
+# IMPORTANT: disable tamper score until accuracy improves
 # ----------------------------------------------------------
 # TAMPER SCORE CALCULATION & FEATURE EXTRACTION
 # ----------------------------------------------------------
@@ -414,7 +607,7 @@ def calculate_texture_tamper_score(chi2_list):
     '''
     tamper score between 0 to 1 based on texture comparisons of each pair of patches for each shadow component:
     0.0 = likely real shadows (textures match)
-    0.1 = likely fake shadows (textures are very different)
+    1.0 = likely fake shadows (textures differ strongly)
 
     considering:
     - how different the textures are (chi-squared distances for similarity)
@@ -474,6 +667,7 @@ def calculate_texture_tamper_score(chi2_list):
         0.15 * score_percentage    # how many are bad
     )
     
+    # IMPORTANT: tamper score is disabled until feature analysis and extraction is reliable enough
     # clamp score to [0, 1]
     tamper_score = max(0.0, min(1.0, tamper_score))
     
@@ -482,7 +676,7 @@ def calculate_texture_tamper_score(chi2_list):
 # ----------------------------------------------------------
 # VISUALIZATION HELPERS
 # ----------------------------------------------------------
-def visualize_texture_analysis(img, mask, L8, lbp, chi2_list, patch_pairs, max_pairs_vis=200):
+def visualize_texture_analysis(img, mask, L8, lbp, chi2_list, patch_pairs, max_pairs_vis=200, patches_for_vis=None):
     '''
     visualize the texture analysis results with maps
     '''
@@ -491,7 +685,7 @@ def visualize_texture_analysis(img, mask, L8, lbp, chi2_list, patch_pairs, max_p
     mask_outline = cv2.morphologyEx(mask, cv2.MORPH_GRADIENT, k)
 
     # make LBP texture map 
-    lbp = lbp_map(L8)
+    # lbp = lbp_map(L8)
     lbp_vis = cv2.normalize(lbp, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
     # outline the shadow areas (using mask boundaries)
     lbp_color = cv2.applyColorMap(lbp_vis, cv2.COLORMAP_BONE)
@@ -535,6 +729,7 @@ def visualize_texture_analysis(img, mask, L8, lbp, chi2_list, patch_pairs, max_p
         cv2.putText(overlay_pairs, str(i), (x_in, max(0, y_in - 3)), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0,0,255), 1, cv2.LINE_AA)
         cv2.putText(overlay_pairs, str(i), (x_out, max(0, y_out - 3)), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0,255,0), 1, cv2.LINE_AA)                
 
+    overlay_pairs[mask_outline > 0] = (255, 255, 255)
     cv2.namedWindow("Comparison Patches (red=inside shadow, green=outside shadow)", cv2.WINDOW_NORMAL)
     cv2.resizeWindow("Comparison Patches (red=inside shadow, green=outside shadow)", 1000, 750)
     cv2.imshow("Comparison Patches (red=inside shadow, green=outside shadow)", overlay_pairs)
@@ -549,13 +744,64 @@ def visualize_texture_analysis(img, mask, L8, lbp, chi2_list, patch_pairs, max_p
         plt.tight_layout()
         plt.show()
 
+    # draw boxes around patch pairs that look suspiciously similar
+    if patches_for_vis is not None and len(patches_for_vis) >= 2:
+        clone_overlay = img.copy()
+
+        for i in range(len(patches_for_vis)):
+            for j in range(i + 1, len(patches_for_vis)):
+                similarity = float(np.dot(patches_for_vis[i]["vec"], patches_for_vis[j]["vec"]))
+                if similarity >= 0.95:
+                    # get the top-left corner of each patch
+                    r_i, c_i = patches_for_vis[i]["row"], patches_for_vis[i]["col"]
+                    r_j, c_j = patches_for_vis[j]["row"], patches_for_vis[j]["col"]
+                    # red box around each suspicious patch
+                    cv2.rectangle(clone_overlay, (c_i, r_i), (c_i + 24, r_i + 24), (0, 0, 255), 2)
+                    cv2.rectangle(clone_overlay, (c_j, r_j), (c_j + 24, r_j + 24), (0, 0, 255), 2)
+                    # orange line connecting the two similar patches
+                    # cv2.line(clone_overlay, (c_i + 12, r_i + 12), (c_j + 12, r_j + 12), (0, 165, 255), 1)            
+
+        cv2.namedWindow("Clone Stamp Detection (red = suspicious pairs)", cv2.WINDOW_NORMAL)
+        cv2.resizeWindow("Clone Stamp Detection (red = suspicious pairs)", 1000, 750)
+        clone_overlay[mask_outline > 0] = (255, 255, 255)
+        cv2.imshow("Clone Stamp Detection (red = suspicious pairs)", clone_overlay)
+
+    # patch entropy heatmap
+    # build a blank heatmap the same size as the image
+    height_img, width_img = L8.shape[:2]
+    patch_size_ent = 32
+    entropy_heatmap = np.zeros((height_img, width_img), dtype=np.float32)
+
+    for y in range(0, height_img - patch_size_ent + 1, patch_size_ent):
+        for x in range(0, width_img - patch_size_ent + 1, patch_size_ent):
+            patch = lbp[y:y + patch_size_ent, x:x + patch_size_ent].ravel()
+            hist = np.bincount(patch, minlength=256).astype(np.float32)
+            small_value = 1e-12
+            hist /= hist.sum() + small_value
+            entropy = -float(np.sum(hist * np.log(hist + small_value)))
+            # fill the whole patch area with its entropy value
+            entropy_heatmap[y:y + patch_size_ent, x:x + patch_size_ent] = entropy
+
+    # normalize to 0-255 so we can colorize it (brighter = more texture detail)
+    entropy_vis = cv2.normalize(entropy_heatmap, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+    entropy_colored = cv2.applyColorMap(entropy_vis, cv2.COLORMAP_JET)
+
+    # blend heatmap on top of original image so you can see where patches fall
+    entropy_overlay = cv2.addWeighted(img, 0.5, entropy_colored, 0.5, 0)
+    
+    entropy_overlay[mask_outline > 0] = (255, 255, 255)
+
+    cv2.namedWindow("Patch Entropy Heatmap (brighter = more texture detail)", cv2.WINDOW_NORMAL)
+    cv2.resizeWindow("Patch Entropy Heatmap (brighter = more texture detail)", 1000, 750)
+    cv2.imshow("Patch Entropy Heatmap (brighter = more texture detail)", entropy_overlay)
+
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 
 # ----------------------------------------------------------
 # CHOOSING THE IMAGE - MAIN ANALYSIS
 # ----------------------------------------------------------
-def analyze_texture(image_input, visualize=True, compute_tamper_score=True, max_pairs_vis=200):
+def analyze_texture(image_input, visualize=True, compute_tamper_score=False, max_pairs_vis=200):
     '''
     analyze texture across shadow boundaries using LBP and return chi-square similarities
     - highlight the pairs of patches (one pair per shadow) that are compared
@@ -566,22 +812,11 @@ def analyze_texture(image_input, visualize=True, compute_tamper_score=True, max_
     else:
         img = image_input
 
+    print(f"Analyzing image: {image_input if isinstance(image_input, str) else 'provided as array'}")
+
     assert img is not None, f"Cannot read image: {image_input}"
 
-    # detect shadows with shadow mask
-    # mask,L = make_shadow_mask(
-    #     img, 
-    #     beta = 0.8,  # trying 0.6-0.8 (street level) or 0.8-1.0 (aerial)
-    #     win_scales = (21, 41, 81),
-    #     k_dark = (0.92, 0.95, 0.98),
-    #     dr=0.06, dg=0.06,
-    #     morph_open = 3, 
-    #     morph_close = 7, 
-    #     min_area = 300
-    # )
-
     mask = final_shadow_mask(img)
-
     # mask should align with the original image
     assert mask.shape[:2] == img.shape[:2], "mask must align with original image"
 
@@ -611,12 +846,8 @@ def analyze_texture(image_input, visualize=True, compute_tamper_score=True, max_
         out_offset=9
     )
 
-    # CONSOLE OUTPUT OF RESULTS
-    # print("\nTexture similarity scores (chi-squared distance):")
-    # print("Lower values = more similar texture = likely real shadow")
-    # print("Higher values = different texture = possible fake shadow")
-    # for i, d in enumerate(chi2_list, start=1):
-    #     print(f"  Pair {i:02d}: {d:.4f}")
+    # run clone detection and save patch positions for visualization
+    clone_feats, patches_for_vis = clone_detection(L8_text.astype(np.uint8), patch_size=40, max_patches=100, similar_thresh=0.95)
 
     # extract features for ML (independent of rule-based scoring)
     features = extract_features(
@@ -629,79 +860,26 @@ def analyze_texture(image_input, visualize=True, compute_tamper_score=True, max_
         chi2_list=chi2_list,
     )
 
-    # calculate tamper score (rule-based only)
+    # IMPORTANT: disable tamper score until feature analysis and extraction is reliable
+    # calculate tamper score (for rule-based path only)
     tamper_score = None
-    if compute_tamper_score:
+    if compute_tamper_score and tamper_score is not None:
         tamper_score = calculate_texture_tamper_score(chi2_list)
         print(f"\n{'='*60}")
         print(f"TEXTURE TAMPER SCORE: {tamper_score:.3f}")
         print(f"{'='*60}")
 
     if visualize:
-        # outline of the mask (shadow boundaries)
-        k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-        mask_outline = cv2.morphologyEx(mask, cv2.MORPH_GRADIENT, k)
-
-        # lbp map
-        lbp_vis = cv2.normalize(lbp, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
-        # outline the shadow areas (using mask boundaries)
-        lbp_color = cv2.applyColorMap(lbp_vis, cv2.COLORMAP_BONE)
-        lbp_color[mask_outline > 0] = (255, 0, 0)
-
-        # show shadow mask
-        mask_overlay = img.copy()
-        mask_overlay[mask == 255] = (0, 0, 255)  # red mask overlay
-        mask_overlay = cv2.addWeighted(img, 0.7, mask_overlay, 0.4, 0)
-
-        cv2.namedWindow("Shadow Mask", cv2.WINDOW_NORMAL)
-        cv2.resizeWindow("Shadow Mask", 800, 600)
-        cv2.imshow("Shadow Mask", mask)
-
-        cv2.namedWindow("Overlay", cv2.WINDOW_NORMAL)
-        cv2.resizeWindow("Overlay", 800, 600)
-        cv2.imshow("Overlay", mask_overlay)
-
-        cv2.waitKey(1)
-
-        # show lbp map with matplotlib
-        plt.figure(figsize=(8, 6))
-        plt.imshow(lbp_vis, cmap='gray')
-        plt.contour(mask_outline > 0, colors='red', linewidths=0.5)
-        plt.title("LBP with bounds in red")
-        plt.show(block=False)
-        plt.pause(0.001)
-        plt.show()
-
-        # patch pair rectangles (inside=red, outside=green)
-        overlay_pairs = lbp_color.copy()
-        vis_n = min(len(patch_pairs), max_pairs_vis)
-
-        for i in range(vis_n):
-            (x_in, y_in), (x_out, y_out), s = patch_pairs[i]
-            # red box = inside shadow
-            cv2.rectangle(overlay_pairs, (x_in, y_in), (x_in + s, y_in + s), (0, 0, 255), 2)
-            # green box = outside shadow (lit area)
-            cv2.rectangle(overlay_pairs, (x_out, y_out), (x_out + s, y_out + s), (0, 255, 0), 2)
-            # label pairs
-            cv2.putText(overlay_pairs, str(i), (x_in, max(0, y_in - 3)), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0,0,255), 1, cv2.LINE_AA)
-            cv2.putText(overlay_pairs, str(i), (x_out, max(0, y_out - 3)), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0,255,0), 1, cv2.LINE_AA)                
-
-        cv2.namedWindow("Comparison Patches (red=inside shadow, green=outside shadow)", cv2.WINDOW_NORMAL)
-        cv2.resizeWindow("Comparison Patches (red=inside shadow, green=outside shadow)", 1000, 750)
-        cv2.imshow("Comparison Patches (red=inside shadow, green=outside shadow)", overlay_pairs)
-
-        # chi-squared histogram (similarity scores)
-        if len(chi2_list) > 0:
-            plt.figure(figsize=(8,5))
-            plt.hist(chi2_list, bins=40)
-            plt.title("Texture Similarity Scores - LBP chi-squared distances")
-            plt.xlabel("Chi-squared distance (lower = more similar)")
-            plt.ylabel("Number of shadow regions")
-            plt.tight_layout()
-            plt.show()
-
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
+        visualize_texture_analysis(
+            img=img,
+            mask=mask,
+            L8=L8_text,
+            lbp=lbp,
+            chi2_list=chi2_list,
+            patch_pairs=patch_pairs,
+            max_pairs_vis=max_pairs_vis,
+            patches_for_vis=patches_for_vis
+        )
 
     # return results
     result = {
@@ -713,6 +891,7 @@ def analyze_texture(image_input, visualize=True, compute_tamper_score=True, max_
         "features": features,
     }
 
+    # IMPORTANT: disable tamper score 
     # only include tamper_score if computed
     if tamper_score is not None:
         result["tamper_score"] = tamper_score
@@ -720,5 +899,5 @@ def analyze_texture(image_input, visualize=True, compute_tamper_score=True, max_
     return result
 
 if __name__ == "__main__":
-    result = analyze_texture("data/images/32-edited.jpg", visualize=True)
+    result = analyze_texture("data/images/44.jpg", visualize=True)
     print("\nExtracted features:", result["features"])

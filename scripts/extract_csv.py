@@ -3,7 +3,7 @@ import os, csv, sys, argparse, glob, traceback
 
 ''' 
 TO RUN THIS SCRIPT:
-python scripts/extract_csv.py --images data/images --features texture,lighting,depth --out data/features.csv
+python scripts/extract_csv.py --images data/images --labels data/labels.csv --features texture,lighting,depth --out data/features.csv
 '''
 # allow imports from shadow feature files (ex: from texture import analyze_texture) from root
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))

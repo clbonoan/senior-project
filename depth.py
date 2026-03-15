@@ -802,7 +802,7 @@ def visualize_depth_analysis(img, mask, debug_points, widths, contrasts, directi
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 
-def analyze_depth(image_input, visualize=True, sample_step=4, compute_tamper_score=True, min_shadow_area=300, min_perimeter=30):
+def analyze_depth(image_input, visualize=True, sample_step=4, compute_tamper_score=False, min_shadow_area=300, min_perimeter=30):
     # load image
     if isinstance(image_input, str):
         img = cv2.imread(image_input)
@@ -1001,7 +1001,7 @@ def analyze_depth(image_input, visualize=True, sample_step=4, compute_tamper_sco
 # ----------------------------------------------------------
 if __name__ == "__main__":
     # testing visuals before analyzing
-    img = cv2.imread("data/images/20-edited.jpg")
+    img = cv2.imread("data/images/41.jpg")
     mask = final_shadow_mask(img)
 
     # visualize_shadow_filtering(
@@ -1012,7 +1012,7 @@ if __name__ == "__main__":
     # )       
 
     result = analyze_depth(
-        "data/images/20-edited.jpg",
+        "data/images/41.jpg",
         visualize=True,
         sample_step=4,
         compute_tamper_score=True,
