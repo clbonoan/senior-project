@@ -7,6 +7,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.spatial.distance import pdist
 from typing import Dict, List, Tuple, Optional
+from pathlib import Path
 
 from shadow_mask import final_shadow_mask, bgr_to_hsi_linear
 
@@ -802,10 +803,10 @@ def visualize_depth_analysis(img, mask, debug_points, widths, contrasts, directi
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 
-def analyze_depth(image_input, visualize=True, sample_step=4, compute_tamper_score=False, min_shadow_area=300, min_perimeter=30):
+def analyze_depth(image_input, visualize=True, sample_step=4, compute_tamper_score=True, min_shadow_area=300, min_perimeter=30):
     # load image
-    if isinstance(image_input, str):
-        img = cv2.imread(image_input)
+    if isinstance(image_input, (str, Path)):
+        img = cv2.imread(str(image_input))
     else:
         img = image_input
 
@@ -965,7 +966,7 @@ def analyze_depth(image_input, visualize=True, sample_step=4, compute_tamper_sco
     if compute_tamper_score and len(all_widths) > 0:
         tamper_score = calculate_depth_tamper_score(features)
         print(f"\n{'='*60}")
-        print(f"PENUMBRA TAMPER SCORE: {tamper_score:.3f}")
+        print(f"DEPTH TAMPER SCORE: {tamper_score:.3f}")
         print(f"{'='*60}")
 
     # visualize
@@ -1001,7 +1002,12 @@ def analyze_depth(image_input, visualize=True, sample_step=4, compute_tamper_sco
 # ----------------------------------------------------------
 if __name__ == "__main__":
     # testing visuals before analyzing
-    img = cv2.imread("data/images/41.jpg")
+    test_path = "data/images/40.jpg"
+
+    img = cv2.imread(test_path)
+    if img is None:
+        raise FileNotFoundError(f"Could not read image: {test_path}")
+    
     mask = final_shadow_mask(img)
 
     # visualize_shadow_filtering(
@@ -1012,7 +1018,7 @@ if __name__ == "__main__":
     # )       
 
     result = analyze_depth(
-        "data/images/41.jpg",
+        test_path,
         visualize=True,
         sample_step=4,
         compute_tamper_score=True,
@@ -1020,8 +1026,9 @@ if __name__ == "__main__":
         min_perimeter=30
     )
 
-    print("\n" + "="*60)
-    print("EXTRACTED DEPTH FEATURES")
-    print("="*60)
-    for key, value in result["features"].items():
-        print(f"{key:30s}: {value}")
+    print("\nExtracted features:", result["features"])
+    # print("\n" + "="*60)
+    # print("EXTRACTED DEPTH FEATURES")
+    # print("="*60)
+    # for key, value in result["features"].items():
+    #     print(f"{key:30s}: {value}")

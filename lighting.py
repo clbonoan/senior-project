@@ -4,6 +4,7 @@
 import cv2
 import numpy as np
 import io, contextlib
+from pathlib import Path
 
 # use same shadow mask as texture.py
 from shadow_mask import final_shadow_mask, srgb_to_linear, remove_small, get_brightness, get_rgb_direction
@@ -710,18 +711,18 @@ def calculate_light_tamper_score(ml_features):
 # ---------------------------------------------------
 # CHOOSING IMAGE 
 # ---------------------------------------------------
-def analyze_lighting(image_path, show_debug=False, compute_tamper_score=False):
+def analyze_lighting(image_input, show_debug=False, compute_tamper_score=True):
     # print tamper score
     # similar to texture.py
     # img = cv2.imread(image_path, cv2.IMREAD_COLOR)
     # if img is None:
     #     raise FileNotFoundError(image_path)
-    if isinstance(image_path, str):
-        img = cv2.imread(image_path)
+    if isinstance(image_input, (str, Path)):
+        img = cv2.imread(str(image_input))
     else:
-        img = image_path
-    
-    assert img is not None, f"Cannot read image: {image_path}"
+        img = image_input
+        
+    assert img is not None, f"Cannot read image: {image_input}"
 
     if show_debug:
         viz = DebugVisualizer()
@@ -736,7 +737,7 @@ def analyze_lighting(image_path, show_debug=False, compute_tamper_score=False):
 
     # calculate tamper score (rule-based path only)
     tamper_score = None
-    if compute_tamper_score and tamper_score is not None:
+    if compute_tamper_score:
         tamper_score = calculate_light_tamper_score(features)
         print(f"\n{'='*60}")
         print(f"LIGHTING TAMPER SCORE: {tamper_score:.3f}")

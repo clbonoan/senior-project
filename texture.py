@@ -4,6 +4,7 @@
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
+from pathlib import Path
 
 from shadow_mask import final_shadow_mask, bgr_to_hsi_linear
 
@@ -200,13 +201,17 @@ def patch_entropy(lbp_u8, mask_u8=None, patch_size=40):
     else:
         outlier_frac = 0.0
 
+    in_mean = float(np.mean(entropy_inside)) if entropy_inside else 0.0
+    out_mean = float(np.mean(entropy_outside)) if entropy_outside else 0.0
+
     return {
         "patch_entropy_mean": mean,
         "patch_entropy_std": std,
         "patch_entropy_max": float(entropy_arr.max()),
         "patch_entropy_min": float(entropy_arr.min()),
-        "patch_entropy_in_mean": float(np.mean(entropy_inside)) if entropy_inside else 0.0,
-        "patch_entropy_out_mean": float(np.mean(entropy_outside)) if entropy_outside else 0.0,
+        "patch_entropy_in_mean": in_mean,
+        "patch_entropy_out_mean": out_mean,
+        "patch_entropy_in_out_gap": abs(in_mean - out_mean),
         "patch_entropy_outlier_frac": outlier_frac
     }
                     
@@ -215,6 +220,10 @@ def clone_detection(L8_u8, patch_size=40, max_patches=100, similar_thresh=0.95):
     sample patches throughout the image and compare them to each other; if two patches
     look very similar, possibly copy-pasted (clone stamped).
     return highest similarity found and how many pairs were similar (suspicious)
+
+    return:
+        clone_feats: dict
+        patches: list of patch metadata for visualization
     '''
 
     height, width = L8_u8.shape[:2]
@@ -263,12 +272,14 @@ def clone_detection(L8_u8, patch_size=40, max_patches=100, similar_thresh=0.95):
     if num_patches < 2:
         return {
             "clone_similar_max": 0.0, 
-            "clone_similar_count": 0
-        }
+            "clone_similar_count": 0,
+            "clone_similar_frac": 0.0
+        }, patches
     
     # compare every patch against every other patch (brute force)
     similarities = []
     suspicious_pairs = 0
+    valid_pairs = 0
 
     for i in range(num_patches):
         for j in range(i + 1, num_patches):
@@ -279,14 +290,25 @@ def clone_detection(L8_u8, patch_size=40, max_patches=100, similar_thresh=0.95):
                 # guard: patches must be far enough apart to be suspicious
                 dist = np.sqrt((patches[i]["row"] - patches[j]["row"])**2 + 
                                 (patches[i]["col"] - patches[j]["col"])**2)
+                
                 if dist > patch_size * 2:   # must be at least 2 patch-widths apart
-                    suspicious_pairs += 1
+                    valid_pairs += 1
+                    if similarity >= similar_thresh:
+                        suspicious_pairs += 1
 
     if len(similarities) == 0:
-        return {"clone_similar_max": 0.0, "clone_similar_count": 0}
+        return {"clone_similar_max": 0.0, 
+                "clone_similar_count": 0,
+                "clone_similar_frac": 0.0
+            }, patches
     
     max_similarity = float(np.array(similarities).max())
-    return {"clone_similar_max": max_similarity, "clone_similar_count": int(suspicious_pairs)}, patches
+    similar_frac = float(suspicious_pairs / valid_pairs) if valid_pairs > 0 else 0.0
+
+    return {"clone_similar_max": max_similarity, 
+            "clone_similar_count": int(suspicious_pairs),
+            "clone_similar_frac": similar_frac
+        }, patches
 
 
 # ----------------------------------------------------------
@@ -581,6 +603,7 @@ def extract_features(
             "patch_entropy_min": 0.0,
             "patch_entropy_in_mean": 0.0,
             "patch_entropy_out_mean": 0.0,
+            "patch_entropy_in_out_gap": 0.0,
             "patch_entropy_outlier_frac": 0.0        
         }
     ml_features.update(entropy_feats)
@@ -588,12 +611,18 @@ def extract_features(
     # clone stamp detection features
     try:
         # save patch positions for visualization
-        clone_feats, _ = clone_detection(L8.astype(np.uint8), patch_size=40, max_patches=100, similar_thresh=0.95)
+        clone_feats, _ = clone_detection(
+            L8.astype(np.uint8), 
+            patch_size=40, 
+            max_patches=100, 
+            similar_thresh=0.95
+        )
     except Exception:
         # use default values instead of crashing
         clone_feats = {
             "clone_similar_max": 0.0,
-            "clone_similar_count": 0
+            "clone_similar_count": 0,
+            "clone_similar_frac": 0.0
         }    
     ml_features.update(clone_feats)
 
@@ -603,9 +632,10 @@ def extract_features(
 # ----------------------------------------------------------
 # TAMPER SCORE CALCULATION & FEATURE EXTRACTION
 # ----------------------------------------------------------
-def calculate_texture_tamper_score(chi2_list):
+def calculate_texture_tamper_score(chi2_list, features=None):
     '''
-    tamper score between 0 to 1 based on texture comparisons of each pair of patches for each shadow component:
+    rule-based tamper score between 0 to 1 based on texture comparisons of each 
+    pair of patches for each shadow component:
     0.0 = likely real shadows (textures match)
     1.0 = likely fake shadows (textures differ strongly)
 
@@ -614,64 +644,135 @@ def calculate_texture_tamper_score(chi2_list):
     - how many suspicious shadow regions there are
     - consistency across all shadows
     '''
+    if features is None:
+        features = {}
+
+    def clamp(x):
+        return max(0.0, min(1.0, float(x)))
+
+    def linear_score(x, low, high):
+        if x <= low:
+            return 0.0
+        if x >= high:
+            return 1.0
+        return (x - low) / (high - low + 1e-12)
+    
+    # TEXTURE MISMATCH SCORE FROM CHI2_LIST
     if len(chi2_list) == 0:
-        return 0.0  # no shadows are found so assume real
-    
-    chi2_arr = np.array(chi2_list)
-
-    # thresholds
-    LOW_THRESHOLD = 0.10   # similar texture
-    HIGH_THRESHOLD = 0.30   # very different texture
-
-    # average texture difference for first score component
-    mean_chi2 = float(np.mean(chi2_arr))
-    if mean_chi2 <= LOW_THRESHOLD:
-        score_mean = 0.0
-    elif mean_chi2 >= HIGH_THRESHOLD:
-        score_mean = 1.0
+        texture_score = 0.0  # no shadows are found so assume real
     else:
-        # linear interpolation if mean is between thresholds
-        score_mean = (mean_chi2 - LOW_THRESHOLD) / (HIGH_THRESHOLD - LOW_THRESHOLD)
+        chi2_arr = np.asarray(chi2_list, dtype=np.float32)
 
-    # max difference (worst case) for second score component
-    # flag if even one shadow is very suspicious
-    max_chi2 = float(np.max(chi2_arr))
-    if max_chi2 <= LOW_THRESHOLD:
-        score_max = 0.0
-    elif max_chi2 >= HIGH_THRESHOLD:
-        score_max = 1.0
-    else:
-        score_max = (max_chi2 - LOW_THRESHOLD) / (HIGH_THRESHOLD - LOW_THRESHOLD)
+        mean_chi2 = float(np.mean(chi2_arr))
+        max_chi2 = float(np.max(chi2_arr))
+        std_chi2 = float(np.std(chi2_arr))
+        pct_suspicious = float(np.mean(chi2_arr > 0.30))
 
-    # consistency of values for third score component
-    # real shadows should have similar values
-    # fake shadows might have mixed results (some match, some don't)
-    std_chi2 = float(np.std(chi2_arr))
-    if std_chi2 > 0.1:
-        score_consistency = 0.3  # penalty for inconsistency
-    else:
-        score_consistency = 0.0
-    
-    # percentage of suspicious shadows for fourth score component
-    # count how many shadows exceed the high threshold
-    num_suspicious = int(np.sum(chi2_arr > HIGH_THRESHOLD))
-    pct_suspicious = num_suspicious / len(chi2_arr)
-    score_percentage = pct_suspicious
-    
-    # combine all components with weights
-    # mean is most important, max catches extreme cases
-    tamper_score = (
-        0.40 * score_mean +        # average behavior
-        0.30 * score_max +         # worst case
-        0.15 * score_consistency + # how consistent
-        0.15 * score_percentage    # how many are bad
+        score_mean = linear_score(mean_chi2, 0.10, 0.30)
+        score_max = linear_score(max_chi2, 0.10, 0.30)
+        score_std = linear_score(std_chi2, 0.05, 0.15)
+        score_pct = pct_suspicious
+
+        texture_score = (
+            0.40 * score_mean +
+            0.25 * score_max +
+            0.15 * score_std +
+            0.20 * score_pct
+        )
+
+    # ENTROPY ANOMALY SCORE
+    entropy_gap = float(features.get("patch_entropy_in_out_gap", 0.0))
+    entropy_outlier_frac = float(features.get("patch_entropy_outlier_frac", 0.0))
+    entropy_std = float(features.get("patch_entropy_std", 0.0))
+
+    score_entropy_gap = linear_score(entropy_gap, 0.15, 0.60)
+    score_entropy_outliers = linear_score(entropy_outlier_frac, 0.05, 0.25)
+    score_entropy_std = linear_score(entropy_std, 0.10, 0.50)
+
+    entropy_score = (
+        0.50 * score_entropy_gap +
+        0.30 * score_entropy_outliers +
+        0.20 * score_entropy_std
     )
+
+    # CLONE STAMP SUSPICION SCORE
+    clone_similar_max = float(features.get("clone_similar_max", 0.0))
+    clone_similar_count = float(features.get("clone_similar_count", 0.0))
+    clone_similar_frac = float(features.get("clone_similar_frac", 0.0))
+
+    # high cosine similarity among distant patches is suspicious
+    score_clone_max = linear_score(clone_similar_max, 0.92, 0.99)
+    score_clone_count = linear_score(clone_similar_count, 1.0, 5.0)
+    score_clone_frac = linear_score(clone_similar_frac, 0.02, 0.12)
+
+    clone_score = (
+        0.35 * score_clone_max +
+        0.25 * score_clone_count +
+        0.40 * score_clone_frac
+    )
+
+    # final combined score
+    tamper_score = (
+        0.55 * texture_score +
+        0.20 * entropy_score +
+        0.25 * clone_score
+    )
+
+    return clamp(tamper_score)
+
+    # # thresholds
+    # LOW_THRESHOLD = 0.10   # similar texture
+    # HIGH_THRESHOLD = 0.30   # very different texture
+
+    # # average texture difference for first score component
+    # mean_chi2 = float(np.mean(chi2_arr))
+    # if mean_chi2 <= LOW_THRESHOLD:
+    #     score_mean = 0.0
+    # elif mean_chi2 >= HIGH_THRESHOLD:
+    #     score_mean = 1.0
+    # else:
+    #     # linear interpolation if mean is between thresholds
+    #     score_mean = (mean_chi2 - LOW_THRESHOLD) / (HIGH_THRESHOLD - LOW_THRESHOLD)
+
+    # # max difference (worst case) for second score component
+    # # flag if even one shadow is very suspicious
+    # max_chi2 = float(np.max(chi2_arr))
+    # if max_chi2 <= LOW_THRESHOLD:
+    #     score_max = 0.0
+    # elif max_chi2 >= HIGH_THRESHOLD:
+    #     score_max = 1.0
+    # else:
+    #     score_max = (max_chi2 - LOW_THRESHOLD) / (HIGH_THRESHOLD - LOW_THRESHOLD)
+
+    # # consistency of values for third score component
+    # # real shadows should have similar values
+    # # fake shadows might have mixed results (some match, some don't)
+    # std_chi2 = float(np.std(chi2_arr))
+    # if std_chi2 > 0.1:
+    #     score_consistency = 0.3  # penalty for inconsistency
+    # else:
+    #     score_consistency = 0.0
     
-    # IMPORTANT: tamper score is disabled until feature analysis and extraction is reliable enough
-    # clamp score to [0, 1]
-    tamper_score = max(0.0, min(1.0, tamper_score))
+    # # percentage of suspicious shadows for fourth score component
+    # # count how many shadows exceed the high threshold
+    # num_suspicious = int(np.sum(chi2_arr > HIGH_THRESHOLD))
+    # pct_suspicious = num_suspicious / len(chi2_arr)
+    # score_percentage = pct_suspicious
     
-    return tamper_score           
+    # # combine all components with weights
+    # # mean is most important, max catches extreme cases
+    # tamper_score = (
+    #     0.40 * score_mean +        # average behavior
+    #     0.30 * score_max +         # worst case
+    #     0.15 * score_consistency + # how consistent
+    #     0.15 * score_percentage    # how many are bad
+    # )
+    
+    # # IMPORTANT: tamper score is disabled until feature analysis and extraction is reliable enough
+    # # clamp score to [0, 1]
+    # tamper_score = max(0.0, min(1.0, tamper_score))
+    
+    # return tamper_score           
 
 # ----------------------------------------------------------
 # VISUALIZATION HELPERS
@@ -756,8 +857,9 @@ def visualize_texture_analysis(img, mask, L8, lbp, chi2_list, patch_pairs, max_p
                     r_i, c_i = patches_for_vis[i]["row"], patches_for_vis[i]["col"]
                     r_j, c_j = patches_for_vis[j]["row"], patches_for_vis[j]["col"]
                     # red box around each suspicious patch
-                    cv2.rectangle(clone_overlay, (c_i, r_i), (c_i + 24, r_i + 24), (0, 0, 255), 2)
-                    cv2.rectangle(clone_overlay, (c_j, r_j), (c_j + 24, r_j + 24), (0, 0, 255), 2)
+                    clone_patch_size = 40
+                    cv2.rectangle(clone_overlay, (c_i, r_i), (c_i + clone_patch_size, r_i + clone_patch_size), (0, 0, 255), 2)
+                    cv2.rectangle(clone_overlay, (c_j, r_j), (c_j + clone_patch_size, r_j + clone_patch_size), (0, 0, 255), 2)
                     # orange line connecting the two similar patches
                     # cv2.line(clone_overlay, (c_i + 12, r_i + 12), (c_j + 12, r_j + 12), (0, 165, 255), 1)            
 
@@ -801,14 +903,14 @@ def visualize_texture_analysis(img, mask, L8, lbp, chi2_list, patch_pairs, max_p
 # ----------------------------------------------------------
 # CHOOSING THE IMAGE - MAIN ANALYSIS
 # ----------------------------------------------------------
-def analyze_texture(image_input, visualize=True, compute_tamper_score=False, max_pairs_vis=200):
+def analyze_texture(image_input, visualize=True, compute_tamper_score=True, max_pairs_vis=200):
     '''
     analyze texture across shadow boundaries using LBP and return chi-square similarities
     - highlight the pairs of patches (one pair per shadow) that are compared
     - return raw chi-square distances for ML feature engineering
     '''
-    if isinstance(image_input, str):
-        img = cv2.imread(image_input)
+    if isinstance(image_input, (str, Path)):
+        img = cv2.imread(str(image_input))
     else:
         img = image_input
 
@@ -863,8 +965,11 @@ def analyze_texture(image_input, visualize=True, compute_tamper_score=False, max
     # IMPORTANT: disable tamper score until feature analysis and extraction is reliable
     # calculate tamper score (for rule-based path only)
     tamper_score = None
-    if compute_tamper_score and tamper_score is not None:
-        tamper_score = calculate_texture_tamper_score(chi2_list)
+    if compute_tamper_score:
+        tamper_score = calculate_texture_tamper_score(
+            chi2_list=chi2_list, 
+            features=features
+        )
         print(f"\n{'='*60}")
         print(f"TEXTURE TAMPER SCORE: {tamper_score:.3f}")
         print(f"{'='*60}")
@@ -899,5 +1004,5 @@ def analyze_texture(image_input, visualize=True, compute_tamper_score=False, max
     return result
 
 if __name__ == "__main__":
-    result = analyze_texture("data/images/44.jpg", visualize=True)
+    result = analyze_texture("data/images/45-edited.jpg", visualize=True)
     print("\nExtracted features:", result["features"])
