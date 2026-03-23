@@ -3,25 +3,26 @@
 
 import pandas as pd
 from pathlib import Path
+import matplotlib.pyplot as plt
 
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import StratifiedKFold, cross_val_score, cross_val_predict
 from sklearn.pipeline import Pipeline
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
+from sklearn.metrics import accuracy_score, classification_report
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.svm import SVC
 
 # choose final stacking classifier (logreg, rf, svm)
-MODEL_TYPE = "svm"
+MODEL_TYPE = "rf"
 
 # go to project's root directory
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = PROJECT_ROOT / "data"
-
-STACKING_CSV = DATA_DIR / "stacking_features.csv"
+STACKING_CSV = DATA_DIR / "stacking_features_oof.csv"
 
 # load stacking dataset
 stack_df = pd.read_csv(STACKING_CSV)
@@ -32,19 +33,18 @@ print(stack_df.columns.tolist())
 # PREPARE X AND y
 # X = the 3 learned probabilities from stage 1
 X = stack_df[["texture_prob", "lighting_prob", "depth_prob"]].copy()
-
 # y = true labels
 y = stack_df["label"].copy()
 
 # TRAIN/TEST SPLIT
 # split stacking dataset into 80% train, 20% split
-X_train, X_test, y_train, y_test = train_test_split(
-    X,
-    y,
-    test_size=0.2,
-    random_state=42,
-    stratify=y
-)
+# X_train, X_test, y_train, y_test = train_test_split(
+#     X,
+#     y,
+#     test_size=0.2,
+#     random_state=42,
+#     stratify=y
+# )
 
 # BUILD MODEL
 def make_model(model_type):
@@ -72,7 +72,6 @@ def make_model(model_type):
                 random_state=42
             ))
         ])
-    
     else:
         raise ValueError(f"Unknown MODEL_TYPE: {model_type}")
 
@@ -80,32 +79,94 @@ final_model = make_model(MODEL_TYPE)
 
 print(f"\nTraining final stacking model using: {MODEL_TYPE}")
 
-# TRAIN MODEL
-final_model.fit(X_train, y_train)
+cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+scores = cross_val_score(final_model, X, y, cv=cv, scoring="accuracy")
 
-# EVALUATE MODEL
-y_pred = final_model.predict(X_test)
-y_prob = final_model.predict_proba(X_test)[:, 1]
+print(f"\nFusion model: {MODEL_TYPE}")
+print("Fold accuracies:", scores)
+print("Mean accuracy:", scores.mean())
+print("Std:", scores.std())
 
-acc = accuracy_score(y_test, y_pred)
+# OUT-OF-FOLD PREDICTIONS
+y_pred = cross_val_predict(final_model, X, y, cv=cv, method="predict")
+# fusion model’s own probability for class 1, where true values are 0=real 1=tampered
+y_prob = cross_val_predict(final_model, X, y, cv=cv, method="predict_proba")[:, 1]
 
-print("\nFinal Stacking Model Results")
+# METRICS FROM OOF PREDICTIONS
+acc = accuracy_score(y, y_pred)
+
+print("\nOverall OOF Results")
 print(f"Accuracy: {acc:.3f}")
 
+# CONFUSION MATRIX
+labels = [0, 1]
+class_names = ["Real", "Tampered"]
+
+cm = confusion_matrix(y, y_pred, labels=labels)
+
 print("\nConfusion Matrix:")
-print(confusion_matrix(y_test, y_pred))
+print(cm)
 
+disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=class_names)
+disp.plot(cmap="Blues")
+
+plt.title(f"Fusion Model Confusion Matrix ({MODEL_TYPE})")
+plt.show()
+
+# CLASSIFICATION REPORT
 print("\nClassification Report:")
-print(classification_report(y_test, y_pred, digits=3))
+print(classification_report(
+    y,
+    y_pred,
+    target_names=class_names,
+    digits=3
+))
 
-# OPTIONAL: SAVE PREDICTIONS FOR THE TEST SET
-results_df = X_test.copy()
-results_df["true_label"] = y_test.values
+# separate probabilities by true class
+real_df = stack_df[stack_df["label"] == 0]
+tampered_df = stack_df[stack_df["label"] == 1]
+
+# prepare data for boxplot
+data = [
+    real_df["texture_prob"],
+    tampered_df["texture_prob"],
+    real_df["lighting_prob"],
+    tampered_df["lighting_prob"],
+    real_df["depth_prob"],
+    tampered_df["depth_prob"],
+]
+
+labels = [
+    "Texture\nReal",
+    "Texture\nTampered",
+    "Lighting\nReal",
+    "Lighting\nTampered",
+    "Depth\nReal",
+    "Depth\nTampered",
+]
+
+plt.figure(figsize=(10, 6))
+plt.boxplot(data, tick_labels=labels)
+plt.ylabel("Predicted Probability of Tampered")
+plt.title("Module Probability Distributions by True Class")
+plt.xticks(rotation=0)
+plt.tight_layout()
+
+plot_path = DATA_DIR / "module_probability_boxplot.png"
+plt.savefig(plot_path, dpi=300)
+plt.show()
+
+print("\nSaved plot:")
+print(plot_path)
+
+# SAVE OOF PREDICTIONS
+results_df = X.copy()
+results_df["true_label"] = y.values
 results_df["pred_label"] = y_pred
 results_df["pred_prob"] = y_prob
 
 results_out = DATA_DIR / f"stacking_results_{MODEL_TYPE}.csv"
 results_df.to_csv(results_out, index=False)
 
-print("\nSaved test predictions:")
+print("\nSaved OOF predictions:")
 print(results_out)

@@ -1,12 +1,11 @@
 # training a classifier for each module (texture, lighting, depth)
 # each module learns based on features, what is probability(image is tampered)
 
-
 import numpy as np
 import pandas as pd
 from pathlib import Path
 
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import StratifiedKFold
 from sklearn.pipeline import Pipeline
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import StandardScaler
@@ -58,6 +57,7 @@ X_texture, y = prepare_features(texture_df, "rule_score_texture", "texture_error
 X_lighting, _ = prepare_features(lighting_df, "rule_score_lighting", "lighting_error")
 X_depth, _ = prepare_features(depth_df, "rule_score_depth", "depth_error")
 
+# DEBUG
 print("\nFeature shapes:")
 print("Texture:", X_texture.shape)
 print("Lighting:", X_lighting.shape)
@@ -67,20 +67,6 @@ print("\nMissing values after cleanup:")
 print("Texture:", int(X_texture.isna().sum().sum()))
 print("Lighting:", int(X_lighting.isna().sum().sum()))
 print("Depth:", int(X_depth.isna().sum().sum()))
-
-# TRAIN/TEST SPLIT
-# split: 80% training, 20% testing
-# keep real/fake ratio balanced in both sets with stratify=y
-X_train_tex, X_test_tex, y_train, y_test = train_test_split(
-    X_texture, y, test_size=0.2, random_state=42, stratify=y
-)
-
-# lighting and depth datasets use the same rows as texture split
-X_train_light = X_lighting.loc[X_train_tex.index]
-X_test_light = X_lighting.loc[X_test_tex.index]
-
-X_train_depth = X_depth.loc[X_train_tex.index]
-X_test_depth = X_depth.loc[X_test_tex.index]
 
 # MODEL (CLASSIFIER) BUILDER BASED ON MODEL_TYPE
 def make_model(model_type):
@@ -111,57 +97,80 @@ def make_model(model_type):
                 random_state=42
             ))
         ])
-
     else:
         raise ValueError(f"Unknown MODEL_TYPE: {model_type}")
 
-# CREATE MODELS
-texture_model = make_model(MODEL_TYPE)
-lighting_model = make_model(MODEL_TYPE)
-depth_model = make_model(MODEL_TYPE)
+skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
 
-print(f"\nTraining models using {MODEL_TYPE}")
+texture_oof = np.zeros(len(y))
+lighting_oof = np.zeros(len(y))
+depth_oof = np.zeros(len(y))
 
-# TRAIN MODELS
-texture_model.fit(X_train_tex, y_train)
-lighting_model.fit(X_train_light, y_train)
-depth_model.fit(X_train_depth, y_train)
+texture_fold_acc = []
+lighting_fold_acc = []
+depth_fold_acc = []
 
-# EVALUATE MODULE PERFORMANCE
-print("\nModule accuracies:")
+for fold, (train_idx, val_idx) in enumerate(skf.split(X_texture, y), start=1):
+    X_train_tex, X_val_tex = X_texture.iloc[train_idx], X_texture.iloc[val_idx]
+    X_train_light, X_val_light = X_lighting.iloc[train_idx], X_lighting.iloc[val_idx]
+    X_train_depth, X_val_depth = X_depth.iloc[train_idx], X_depth.iloc[val_idx]
 
-# test each model on the test dataset
-for name, model, X_test_module in [
-    ("Texture", texture_model, X_test_tex),
-    ("Lighting", lighting_model, X_test_light),
-    ("Depth", depth_model, X_test_depth),
-]:
-    # predict class labels
-    preds = model.predict(X_test_module)
-    # calculate accuracy
-    acc = accuracy_score(y_test, preds)
-    print(f"{name}: {acc:.3f}")
+    y_train, y_val = y.iloc[train_idx], y.iloc[val_idx]
 
-# GENERATE PROBABILITIES FOR STACKING
-# predict_proba for probability of each class
-# [;, 1] = probability of the tampered class (class 1)
-texture_prob = texture_model.predict_proba(X_texture)[:, 1]
-lighting_prob = lighting_model.predict_proba(X_lighting)[:, 1]
-depth_prob = depth_model.predict_proba(X_depth)[:, 1]
+    texture_model = make_model(MODEL_TYPE)
+    lighting_model = make_model(MODEL_TYPE)
+    depth_model = make_model(MODEL_TYPE)
 
-# BUILD STACKING DATASET
-# stacking - combines the predictions of several individual models to create
-# a new, more robust model (meta-model)
+    texture_model.fit(X_train_tex, y_train)
+    lighting_model.fit(X_train_light, y_train)
+    depth_model.fit(X_train_depth, y_train)
+
+    # raw sklearn probabilities for class 1 (class 1 = tampered)
+    texture_prob_raw = texture_model.predict_proba(X_val_tex)[:, 1]
+    lighting_prob_raw = lighting_model.predict_proba(X_val_light)[:, 1]
+    depth_prob_raw = depth_model.predict_proba(X_val_depth)[:, 1]
+
+    # flip values here so higher probability means more likely tampered
+    texture_oof[val_idx] = 1 - texture_prob_raw
+    lighting_oof[val_idx] = 1 - lighting_prob_raw
+    depth_oof[val_idx] = 1 - depth_prob_raw
+
+    # module predictions
+    texture_pred = texture_model.predict(X_val_tex)
+    lighting_pred = lighting_model.predict(X_val_light)
+    depth_pred = depth_model.predict(X_val_depth)
+
+    # module accuracies per fold
+    texture_fold_acc.append(accuracy_score(y_val, texture_pred))
+    lighting_fold_acc.append(accuracy_score(y_val, lighting_pred))
+    depth_fold_acc.append(accuracy_score(y_val, depth_pred))
+
+print(f"\n{MODEL_TYPE} OOF module accuracies")
+print(f"Texture mean acc:  {np.mean(texture_fold_acc):.3f}")
+print(f"Lighting mean acc: {np.mean(lighting_fold_acc):.3f}")
+print(f"Depth mean acc:    {np.mean(depth_fold_acc):.3f}")
+
 stack_df = pd.DataFrame({
     "image_id": texture_df["image_id"],
-    "label": texture_df["label"],
-    "texture_prob": texture_prob,
-    "lighting_prob": lighting_prob,
-    "depth_prob": depth_prob
+    "label": y,
+    "texture_prob": texture_oof,
+    "lighting_prob": lighting_oof,
+    "depth_prob": depth_oof
 })
 
-stack_path = DATA_DIR / "stacking_features.csv"
+# check labels (flipped)
+print("\nClass mapping:", texture_model.named_steps["model"].classes_)
+print(texture_df[["image_id", "label"]].head(10))
+print(texture_df["label"].value_counts())
+
+print("\nProbability means by label:")
+print(stack_df.groupby("label")[["texture_prob", "lighting_prob", "depth_prob"]].mean())
+
+print("\nProbability medians by label:")
+print(stack_df.groupby("label")[["texture_prob", "lighting_prob", "depth_prob"]].median())
+
+stack_path = DATA_DIR / "stacking_features_oof.csv"
 stack_df.to_csv(stack_path, index=False)
 
-print("\nSaved stacking features:")
+print("\nSaved OOF stacking features:")
 print(stack_path)
