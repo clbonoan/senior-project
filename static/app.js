@@ -281,7 +281,7 @@ function buildMlExplanation(data) {
     }
 
     let baseSentence = `
-        Our ML model estimates a <b>${(prob * 100).toFixed(1)}%</b> chance that
+        Our stacked ML model estimates a <b>${(prob * 100).toFixed(1)}%</b> chance that
         this image is <b>tampered</b>.
     `;
 
@@ -358,6 +358,7 @@ function renderResults(data) {
     console.log("final vote from server:", data.final_rule_based_vote);
     console.log("ml prediction:", data.ml_prediction);
     console.log("ml probability tampered:", data.ml_probability_tampered);
+    console.log("ml module probabilities:", data.ml_module_probabilities);
 
     // get explanationn text for rule-based side
     const ruleExplanation = buildRuleBasedExplanation(data);
@@ -411,18 +412,58 @@ function renderResults(data) {
     let finalHtml = "";
 
     if (shouldShowMl) {
-        // RIGHT SIDE is ML based results
+        // RIGHT SIDE is stacked ML based results
         console.log("ML raw prediction:", data.ml_prediction);
         console.log("ML formatted prediction:", formatVote(data.ml_prediction));
+        console.log("ML module probabilities:", data.ml_module_probabilities)
 
+        const moduleProbs = data.ml_module_probabilities || {};
+        
         let mlHtml = `
-            <h2>ML Model (Logistic Regression) Results</h2>
-            <p><b>Prediction:</b> ${formatVote(data.ml_prediction)}</p>
+            <h2>ML Stacked Model Results</h2>
+            <p><b>Final Prediction:</b> ${formatVote(data.ml_prediction)}</p>
+        `;
+
+        mlHtml += `
+            <div class="feature-row">
+                <div class="feature-card">
+                    <div class="feature-title">TEXTURE</div>
+                    <div class="feature-score">
+                        Probability Tampered: ${
+                            moduleProbs.texture !== null && moduleProbs.texture !== undefined
+                                ? moduleProbs.texture.toFixed(3)
+                                : "N/A"
+                        }
+                    </div>
+                </div>
+
+                <div class="feature-card">
+                    <div class="feature-title">LIGHTING</div>
+                    <div class="feature-score">
+                        Probability Tampered: ${
+                            moduleProbs.lighting !== null && moduleProbs.lighting !== undefined
+                                ? moduleProbs.lighting.toFixed(3)
+                                : "N/A"
+                        }
+                    </div>
+                </div>
+
+                <div class="feature-card">
+                    <div class="feature-title">DEPTH</div>
+                    <div class="feature-score">
+                        Probability Tampered: ${
+                            moduleProbs.depth !== null && moduleProbs.depth !== undefined
+                                ? moduleProbs.depth.toFixed(3)
+                                : "N/A"
+                        }
+                    </div>
+                </div>
+            </div>
         `;
 
         if (data.ml_probability_tampered !== null && data.ml_probability_tampered !== undefined) {
             mlHtml += `
-                <p><b>Probability Tampered:</b> ${data.ml_probability_tampered.toFixed(3)}</p>
+                <p><b>Final Stacked Probability Tampered:</b> ${data.ml_probability_tampered.toFixed(3)}</p>
                 <br>
                 <hr>
                 <br>

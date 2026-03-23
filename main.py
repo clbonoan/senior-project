@@ -1,6 +1,5 @@
 from flask import Flask, request, jsonify, render_template
 
-#import shutil
 import os
 import cv2 as cv
 import numpy as np 
@@ -14,21 +13,48 @@ from depth import analyze_depth
 #app = FastAPI()
 app = Flask(__name__)
 
-#uploaded files go in uploads
+# uploaded files go in uploads
 UPLOAD_DIR = os.path.join("static", "uploads")
 
-# load ML model (scaled logistic regression pipeline)
+# load ML model (module models and stacked model)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-ML_MODEL_PATH = os.path.join(BASE_DIR, "data", "logreg-scaled.joblib")
-
-ml_bundle = joblib.load(ML_MODEL_PATH)
-ml_model = ml_bundle["model"]
-ml_feature_cols = ml_bundle["feature_cols"]
-print("Loaded ML feature columns:", ml_feature_cols)
+MODELS_DIR = os.path.join(BASE_DIR, "models")
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-#when website is visited, it calls index.html 
+#old ML pipeline
+# ml_bundle = joblib.load(ML_MODEL_PATH)
+# ml_model = ml_bundle["model"]
+# ml_feature_cols = ml_bundle["feature_cols"]
+# print("Loaded ML feature columns:", ml_feature_cols)
+
+# load saved stacked pipeline models
+texture_bundle = joblib.load(os.path.join(MODELS_DIR, "texture_model.joblib"))
+lighting_bundle = joblib.load(os.path.join(MODELS_DIR, "lighting_model.joblib"))
+depth_bundle = joblib.load(os.path.join(MODELS_DIR, "depth_model.joblib"))
+stack_bundle = joblib.load(os.path.join(MODELS_DIR, "stack_model.joblib"))
+
+texture_model = texture_bundle["model"]
+lighting_model = lighting_bundle["model"]
+depth_model = depth_bundle["model"]
+stack_model = stack_bundle["model"]
+
+texture_feature_cols = texture_bundle["feature_cols"]
+lighting_feature_cols = lighting_bundle["feature_cols"]
+depth_feature_cols = depth_bundle["feature_cols"]
+stack_feature_cols = stack_bundle["feature_cols"]
+
+texture_probability_flip = texture_bundle.get("probability_flip", False)
+lighting_probability_flip = lighting_bundle.get("probability_flip", False)
+depth_probability_flip = depth_bundle.get("probability_flip", False)
+
+print("Loaded texture features:", texture_feature_cols)
+print("Loaded lighting features:", lighting_feature_cols)
+print("Loaded depth features:", depth_feature_cols)
+print("Loaded stacked features:", stack_feature_cols)
+
+# routes to html pages
+# when website is visited, it first calls index.html 
 @app.route("/", methods=["GET"])
 def upload_page():
     return render_template("index.html")
@@ -45,7 +71,7 @@ def info():
 def repo():
     return render_template("repo.html")
 
-# helper
+# helpers
 def extract_tamper_score(result) -> float | None:
     if isinstance(result, dict) and "tamper_score" in result:
         try:
@@ -53,6 +79,32 @@ def extract_tamper_score(result) -> float | None:
         except (TypeError, ValueError):
             return None
     return None
+
+def build_feature_df(features_dict, feature_cols):
+    # build a single row DataFrame in the same column order from training;
+    # any missing or invalid values are replaced with 0.0
+    row = []
+    for col in feature_cols:
+        value = features_dict.get(col, 0.0)
+        try:
+            row.append(float(value))
+        except (TypeError, ValueError):
+            row.append(0.0)
+
+    return pd.DataFrame([row], columns=feature_cols)
+
+def get_class1_probability(model, feature_df):
+    # return probability for class 1 (tampered). assume labels are [0,1]
+    proba = model.predict_proba(feature_df)[0]
+    classes = getattr(model, "classes_", None)
+
+    if classes is not None:
+        classes_list = list(classes)
+        if 1 in classes_list:
+            idx = classes_list.index(1)
+            return float(proba[idx])
+        
+    return float(proba[np.argmax(proba)])
 
 # API
 @app.route("/process/", methods=["POST"])
@@ -76,7 +128,10 @@ def process_image():
     if img is None:
         return jsonify(error="Could not read uploaded image."), 400
     
-    # run all the rule-based parts of the analyzers
+    '''
+    run the rule-based analysis; scores are based on handcrafted tamper score
+    calculations
+    '''
     scores = {}
 
     # make sure these exist even if analysis fails
@@ -87,7 +142,7 @@ def process_image():
     # texture
     try:
         texture_result = analyze_texture(img, visualize=False, compute_tamper_score=True)
-        print("Result from texture:", texture_result)
+        #print("Result from texture:", texture_result)      # debug
         scores["texture"] = extract_tamper_score(texture_result)
         texture_features = texture_result.get("features", {})
     except Exception as e:
@@ -97,7 +152,7 @@ def process_image():
     # lighting
     try:
         lighting_result = analyze_lighting(img, show_debug=False, compute_tamper_score=True)
-        print("Result from lighting:", lighting_result)
+        #print("Result from lighting:", lighting_result)       # debug
         scores["lighting"] = extract_tamper_score(lighting_result)
         lighting_features = lighting_result.get("features", {})
     except Exception as e:
@@ -114,7 +169,7 @@ def process_image():
             min_shadow_area=300,
             min_perimeter=30,
         )
-        print("Result from depth:", depth_result)
+        #print("Result from depth:", depth_result)       # debug
         scores["depth"] = extract_tamper_score(depth_result)
         depth_features = depth_result.get("features", {})
     except Exception as e:
@@ -158,70 +213,76 @@ def process_image():
     valid_scores = [s for s in scores.values() if isinstance(s, (int, float))]
     overall_rule_based = float(np.mean(valid_scores)) if valid_scores else None
  
-    # ML prediction only when model == "ml"
+    # stacked ML prediction only when model == "ml"
     ml_prediction = None
     ml_probability = None
+    ml_module_probabilities = {
+        "texture": None,
+        "lighting": None,
+        "depth": None,
+    }
 
+    '''
+    build a texture, lighting, and depth row, get one probability from each, and
+    feed those values (3 probabilities) into the stacked model
+    '''
     if model == "ml":
-        # ML feature response
-        combined_ml_features = {}
-
-        def add_prefixed(prefix: str, feats: dict):
-            for k, v in feats.items():
-                key = f"{prefix}_{k}"
-                try:
-                    combined_ml_features[key] = float(v)
-                except (TypeError, ValueError):
-                    combined_ml_features[key] = 0.0
-        
-        add_prefixed("texture", texture_features)
-        add_prefixed("lighting", lighting_features)
-        add_prefixed("depth", depth_features)
-
-        # build DataFrame in the same order of ml_feature_cols
-        feature_row = [combined_ml_features.get(col, 0.0) for col in ml_feature_cols]
-        feature_df = pd.DataFrame([feature_row], columns=ml_feature_cols)
-
         try:
-            # predict class label
-            ml_prediction = int(ml_model.predict(feature_df)[0])
+            # build single row DataFrame for each module
+            texture_df_ml = build_feature_df(texture_features, texture_feature_cols)
+            lighting_df_ml = build_feature_df(lighting_features, lighting_feature_cols)
+            depth_df_ml = build_feature_df(depth_features, depth_feature_cols)
+
+            # module probabilities
+            texture_prob = get_class1_probability(texture_model, texture_df_ml)
+            lighting_prob = get_class1_probability(lighting_model, lighting_df_ml)
+            depth_prob = get_class1_probability(depth_model, depth_df_ml)
+
+            # apply saved flipped setting so higher probability aligns with "more likely tampered"
+            if texture_probability_flip:
+                texture_prob = 1.0 - texture_prob
+            if lighting_probability_flip:
+                lighting_prob = 1.0 - lighting_prob
+            if depth_probability_flip:
+                depth_prob = 1.0 - depth_prob
             
-            # predict probability if possible
-            if hasattr(ml_model, "predict_proba"):
-                proba = ml_model.predict_proba(feature_df)[0]
-                classes = getattr(ml_model, "classes_", None)
-                
-                if classes is not None:
-                    # find the index of class "1" (tampered) if it exists
-                    classes_list = list(classes)
-                    if 1 in classes_list:
-                        idx = classes_list.index(1)
-                        ml_probability = float(proba[idx])
-                    else:
-                        # if class 1 doesn't exist, just use max probability
-                        ml_probability = float(proba[np.argmax(proba)])
-                else:
-                    # no classes_ attribute; just take max probability
-                    ml_probability = float(proba[np.argmax(proba)])
-            else:
-                print("Model has no predict_proba; probability not available.")
+            ml_module_probabilities["texture"] = float(texture_prob)
+            ml_module_probabilities["lighting"] = float(lighting_prob)
+            ml_module_probabilities["depth"] = float(depth_prob)
+
+            # stacked model input
+            stack_input = pd.DataFrame([{
+                "texture_prob": texture_prob,
+                "lighting_prob": lighting_prob,
+                "depth_prob": depth_prob,
+            }], columns=stack_feature_cols)
+
+            # final stacked prediction
+            ml_prediction = int(stack_model.predict(stack_input)[0])
+            ml_probability = get_class1_probability(stack_model, stack_input)
+
         except Exception as e:
-            print("Error during ML prediction:", e)
+            print("Error during stacked ML prediction:", e)
             ml_prediction = None
             ml_probability = None
-
+            ml_module_probabilities = {
+                "texture": None,
+                "lighting": None,
+                "depth": None,
+            }
 
     return jsonify(
+        # rule-based output
         threshold = THRESHOLD_TAMPER,
         rule_based_scores = scores,
         rule_based_votes = votes,
         overall_rule_based_score = overall_rule_based,
         final_rule_based_vote = final_vote,     # 0=real, 1=tampered, None=unknown
 
-        # ML output
+        # stacked ML output
         ml_prediction =  ml_prediction,             # 0=real, 1=tampered, None=error
         ml_probability_tampered =  ml_probability,  # probability of class 1
-        ml_feature_cols =  ml_feature_cols,         # list of all feature names
+        ml_module_probabilities = ml_module_probabilities,
         # DEBUGGING
         #"ml_features_used": combined_ml_features,
     ), 200
