@@ -1,0 +1,8 @@
+{
+  "model_type":"rf",
+  "texture_num_features":21,
+  "lighting_num_features":32,
+  "depth_num_features":18,
+  "stack_num_features":3,
+  "num_samples":126
+}
