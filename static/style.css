@@ -1,4 +1,5 @@
-@import url('https://fonts.googleapis.com/css2?family=Mulish:ital,wght@0,200..1000;1,200..1000&display=swap');
+/*@import url('https://fonts.googleapis.com/css2?family=Mulish:ital,wght@0,200..1000;1,200..1000&display=swap');*/
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&family=Roboto+Flex:opsz,wght,XOPQ,XTRA,YOPQ,YTDE,YTFI,YTLC,YTUC@8..144,100..1000,96,468,79,-203,738,514,712&display=swap');
 
 * {
   margin: 0;
@@ -8,36 +9,72 @@
 
 body {
   background-color: #0D0D0D;
-  font-family: "Mulish", sans-serif;
+  font-family: "Roboto Flex", sans-serif;
+  font-weight: 200;
   color: #fff;
   padding-top: 80px; /* so content isn't hidden under navbar */
   text-align: center;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.8);
   margin: 0 auto;
   padding-bottom: 60px;
+}
+
+#hex-canvas {
+  position: fixed;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  z-index: 0;
+  display: block;
 }
 
 .navbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background-color: #0D0D0D;
-  padding: 10px 20px;
+  flex-wrap: nowrap;
+  overflow: hidden;
+  background-color: rgba(20, 20, 20, 0.75);
+  backdrop-filter: blur(10px);
+  border: 0.5px solid rgba(75, 220, 130, 0.15);
+  border-radius: 5px;
+  gap: 80px;
   position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: fit-content;
+  min-width: 500px;
   z-index: 1000;
 }
 
 .nav-left .nav-logo {
-  width: 60px;
-  height: 60px;
+  width: 40px;
+  height: 40px;
+}
+
+.nav-logo-link {
+  display: flex;
+  align-items: center;
+  text-decoration: none;
+}
+
+.nav-wordmark {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 16px;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+  color: #4CBB17;
+  letter-spacing: 0.04em;
 }
 
 .nav-right {
+  font-family: "JetBrains Mono", monospace;
+  font-weight: 100;
   display: flex;
-  gap: 20px;
-  flex-wrap: wrap;
+  gap: 15px;
+  flex-wrap: nowrap;
+  white-space: nowrap;
   justify-content: flex-end;
 }
 
@@ -45,9 +82,8 @@ body {
   text-decoration: none;
   color: white;
   font-weight: 500;
-  font-size: 18px;
-  padding: 8px 12px;
-  border-radius: 6px;
+  font-size: 16px;
+  padding: 6px 12px;
   transition: background-color 0.3s ease, color 0.3s ease;
 }
 
@@ -56,35 +92,88 @@ body {
 }
 
 .nav-right a:hover {
-  background-color: #4CBB17;
-  color: white;
+  color: #84b96c;
+  background-color: transparent;
 }
 
-/* Responsive navbar: stack links vertically on small screens */
-@media (max-width: 700px) {
+/* responsive navbar */
+.hamburger {
+  display: none;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 6px 12px;
+}
+
+.hamburger span {
+  display: block;
+  width: 20px;
+  height: 2px;
+  background: white;
+  border-radius: 2px;
+  transition: all 0.2s ease;
+}
+
+.hamburger.open span:nth-child(1) {
+  transform: translateY(7px) rotate(45deg);
+}
+.hamburger.open span:nth-child(2) {
+  opacity: 0;
+}
+.hamburger.open span:nth-child(3) {
+  transform: translateY(-7px) rotate(-45deg);
+}
+
+@media (max-width: 620px) {
   .navbar {
-    flex-direction: column;
-    align-items: flex-start;
+    overflow: visible;
+    border-radius: 5px;
+    min-width: unset;
+    width: calc(100% - 32px);
+    left: 50%;
+    transform: translateX(-50%);
+    flex-wrap: wrap;
+    padding: 2px 2px;
+    gap: 0;
   }
 
   .nav-right {
+    display: none;
     flex-direction: column;
     align-items: flex-start;
     width: 100%;
-    gap: 10px;
+    gap: 4px;
+    padding: 8px 0 4px;
+  }
+
+  .nav-right.open {
+    display: flex;
+  }
+
+  .nav-right a {
+    width: 100%;
+    padding: 8px 4px;
+    border-top: 0.5px solid rgba(255,255,255,0.08);
+  }
+
+  .hamburger {
+    display: flex;
   }
 }
 
 #home-title {
-  font-size: clamp(36px, 6vw, 72px);
-  background-image: linear-gradient(to right, #e8e2e2 52%, #4CBB17 48%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 60px;
   margin: 100px auto 20px;
 }
 
 h3 {
   font-size: clamp(18px, 3vw, 25px);
+  font-weight: 400;
+  letter-spacing: 0.02em;
   color: rgb(195, 191, 191);
   margin-bottom: 40px;
 }
@@ -101,10 +190,10 @@ h3 {
 
 .custom-upload {
   width: min(450px, 80vw);
-  background: white;
-  color: #111;
+  background: rgba(13, 13, 13, 0.85);
+  color: white;
   border-radius: 8px;
-  border: 3px solid #4CBB17;
+  border: 1.5px solid #4CBB17;
   padding: 26px 14px;
   cursor: pointer;
   transition: transform .12s ease, box-shadow .12s ease;
@@ -115,18 +204,19 @@ h3 {
 
 .custom-upload:hover {
   box-shadow: 
-    0 5px 10px rgba(0,0,0,.25),
+    0 5px 10px rgba(0, 0, 0, .25),
     0 0 0 2px #4CBB17;
 }
 
 .upload-title {
   font-weight: 700;
   font-size: 18px;
+  color: white;
 }
 
 .upload-info {
   font-size: 14px;
-  color: black;
+  color: rgba(255, 255, 255, 0.75);
 }
 
 .chooseMethod {
@@ -315,6 +405,7 @@ p {
 }
 
 #titles {
+  font-family: "JetBrains Mono", monospace;
   font-size: 34px;
   margin: 10px 0px;
 }
@@ -337,8 +428,10 @@ p {
   padding: 20px 40px;
   overflow-x: auto;
   overflow-y: auto;
-  scrollbar-color: #4CBB17 transparent;
+  scrollbar-color: #ffffff transparent;
   text-align: left;
+  background: rgba(12, 12, 12, 0.8);
+  backdrop-filter: blur(1px);
 }
 
 .markdown-body h1 {

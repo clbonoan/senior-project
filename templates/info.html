@@ -3,24 +3,30 @@
   
 <head>
   <title>Shadow Check</title>
- <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
- <link rel ="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.png')}}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link rel ="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.png')}}">
 </head>
 
- 
 <body>
-   <nav class="navbar">
-    <div class="nav-left">
+  <canvas id="hex-canvas"></canvas>
 
-      <a href="/">
+  <nav class="navbar">
+    <div class="nav-left">
+      <a href="/" class="nav-logo-link">
         <img src="{{ url_for('static', filename='favicon.png') }}" alt="Home" class="nav-logo">
+        <span class="nav-wordmark">Shadow Check</span>
       </a>
     </div>
     <div class="nav-right">
-          <a href="/repo"> Repository </a>
-          <a href="/about"> About Us</a>
-          <a href="/info" class="active"> Information</a>
-      </div>
+      <a href="/repo">Repository </a>
+      <a href="/about">About</a>
+      <a href="/info" class="active">Information</a>
+    </div>
+    <button class="hamburger" id="hamburger" aria-label="Menu">
+      <span></span>
+      <span></span>
+      <span></span>
+    </button>
   </nav>
 
   <h1 id="titles"> Information </h1>
@@ -29,9 +35,71 @@
   The focus is on urban infrastructure, where aerial and ground-level images are frequently utilized to monitor potential projects and development progress. 
   We plan to develop a web application that analyzes an image's shadows and provides a tampering likelihood score with a visual of suspicious regions. 
   Our approach uses pixel-based algorithms to extract shadow texture, lighting strength, and depth characteristics to improve detection accuracy. 
-  We seek to support digital forensics and ensure the authenticity of urban imagery used in planning and reporting. </p>
+  We aim to support digital forensics and ensure the authenticity of urban imagery used in planning and reporting. </p>
 
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+  <script>
+    (function () {
+      const canvas = document.getElementById('hex-canvas');
+      const ctx = canvas.getContext('2d');
+
+      function draw() {
+        const W = window.innerWidth;
+        const H = window.innerHeight;
+        canvas.width = W;
+        canvas.height = H;
+        canvas.style.width = W + 'px';
+        canvas.style.height = H + 'px';
+        ctx.clearRect(0, 0, W, H);
+
+        const cols = 60;
+        const rows = 30;
+        const spacingX = W / cols;
+        const spacingY = (H * 0.6) / rows;
+
+        for (let row = 0; row < rows; row++) {
+          for (let col = 0; col < cols; col++) {
+            const x = col * spacingX;
+
+            /* wave: each row curves like a sine hill */
+            const progress = col / cols;
+            const wave = Math.sin(progress * Math.PI) * (H * 0.28)
+                        + Math.sin(progress * Math.PI * 2.5) * (H * 0.08)
+                        + Math.sin(progress * Math.PI * 4.2 + row * 0.3) * (H * 0.04);
+            const y = H * 0.30 + row * spacingY - wave;
+
+            /* dots near the wave peak are brighter */
+            const distFromPeak = Math.abs(row - rows * 0.3);
+            const brightness = Math.max(0, 1 - distFromPeak / (rows * 0.6));
+
+            /* dots further from center column fade out */
+            const edgeFade = Math.sin(progress * Math.PI);
+
+            const opacity = brightness * edgeFade * 0.75;
+            const radius = 1.2 + brightness * edgeFade * 1.4;
+
+            if (opacity < 0.02) continue;
+
+            ctx.beginPath();
+            ctx.arc(x, y, radius, 0, Math.PI * 2);
+            ctx.fillStyle = `rgba(74, 222, 128, ${opacity})`;
+            ctx.fill();
+          }
+        }
+      }
+
+      window.addEventListener('load', draw);
+      window.addEventListener('resize', draw);
+    })();
+  </script>
+  <script>
+    const hamburger = document.getElementById('hamburger');
+    const navRight = document.getElementById('nav-right');
+    hamburger.addEventListener('click', () => {
+      hamburger.classList.toggle('open');
+      navRight.classList.toggle('open');
+    });
+  </script>
   
 </body>
-
 </html>
