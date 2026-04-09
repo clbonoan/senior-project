@@ -2,7 +2,7 @@
 <html lang="en">
   
 <head>
-  <title>Shadow Check</title>
+  <title>About</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   <link rel ="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.png')}}">
 </head>
@@ -17,7 +17,7 @@
         <span class="nav-wordmark">Shadow Check</span>
       </a>
     </div>
-    <div class="nav-right">
+    <div class="nav-right" id="nav-right">
       <a href="/repo">Repository </a>
       <a href="/about" class="active">About</a>
       <a href="/info">Information</a>
@@ -29,9 +29,39 @@
     </button>
   </nav>
 
-  <h1 id="titles">About Us </h1>
-  <h3>Christine Bonoan & Edwin Aviles</h3>
+  <div id="text-container">
+    <h1 id="titles">About</h1>
+    <p id="about-text">
+      This project is a senior capstone project developed at CSU Bakersfield for the Senior Design Expo. 
+      This system detects image tampering in urban infrastructure photographs, where ground-level images are frequently used to 
+      monitor potential projects and development progress. We start by analyzing shadow inconsistencies using a dual-path framework
+      that combines rule-based logic and machine learning to provide a side-by-side comparison of each method's findings. 
+      Our approach uses pixel-based algorithms to extract shadow texture, lighting strength, and depth characteristics to improve detection accuracy. 
+      We plan to develop a web application that analyzes an image's shadows and provides tampering likelihood scores with visuals of suspicious regions. 
+      Our aim is to find ways to support digital forensics and ensure the authenticity of urban imagery used in planning and reporting.
+    </p>
+    <br>
+    <br>
+    <div class="about-divider"></div>
 
+    <div class="about-section">
+      <p class="about-label">Institution</p>
+      <p class="about-institution">California State University, Bakersfield</p>
+      <p class="about-course">Senior Design · Fall 2025 - Spring 2026</p>
+    </div>
+
+    <div class="about-divider"></div>
+
+    <div class="about-section">
+      <p class="about-label">Team</p>
+      <div class="team-grid">
+        <div class="team-card">Christine Bonoan</div>
+        <div class="team-card">Edwin Aviles</div>
+      </div>
+    </div>
+
+  </div>
+  
   <script src="{{ url_for('static', filename='app.js') }}"></script>
   <script>
     (function () {

@@ -156,7 +156,7 @@ body {
   .nav-right a {
     width: 100%;
     padding: 8px 4px;
-    border-top: 0.5px solid rgba(255,255,255,0.08);
+    border-top: 0.5px solid rgba(255, 255, 255, 0.08);
   }
 
   .hamburger {
@@ -220,7 +220,7 @@ h3 {
 }
 
 .chooseMethod {
-  font-family: "Mulish", sans-serif;
+  font-family: "Roboto Flex", sans-serif;
   font-size: 18px;
 }
 
@@ -233,7 +233,7 @@ h3 {
 }
 
 #mlButton, #dlButton {
-  font-family: "Mulish", sans-serif;
+  font-family: "Roboto Flex", sans-serif;
   font-size: 14px;
   background: transparent;
   color: white;
@@ -263,15 +263,15 @@ h3 {
 }
 
 #analyzeButton {
+  font-family: "Roboto Flex", sans-serif;
+  width: 90px;  
   height: 40px;
-  width: 90px;
   font-size: 16px;
   padding: 5px 10px;
   border-radius: 8px;
   border: 1px solid #007BFF;
   background: #007BFF;
   color: white;
-  font-family: "Mulish", sans-serif;
   cursor: pointer;
 }
 
@@ -322,7 +322,7 @@ h3 {
   text-align: center;
   width: 220px;
   background-color: #111;
-  border: 2px solid #666;   /* gray border */
+  border: 2px solid #666;
   box-shadow: 0 0 10px rgba(0, 0, 0, 0.4);
   transition: 0.3s ease;
 }
@@ -391,14 +391,15 @@ h3 {
 }
 
 .results-column {
-    flex: 1;
-    min-width: 0;
+  flex: 1;
+  min-width: 0;
 }
 
 #total-result-container {
   padding: 40px;
 }
 
+/* paragraph styling */
 p {
   font-size: 20px;
   color: #D3D3D3;
@@ -420,10 +421,10 @@ p {
 }
 
 #readme-container {
+  width: min(700px, 90vw);
+  height: min(600px, 70vh);
   border: 2px solid #4CBB17;
   border-radius: 10px;
-  height: 600px;
-  width: 700px;
   margin: 0 auto;
   padding: 20px 40px;
   overflow-x: auto;
@@ -434,7 +435,7 @@ p {
   backdrop-filter: blur(1px);
 }
 
-.markdown-body h1 {
+/* .markdown-body h1 {
   padding-bottom: 20px;
 }
 
@@ -446,4 +447,93 @@ p {
 .markdown-body p {
   color: #D3D3D3;
   font-size: 16px;
+} */
+
+.markdown-body {
+  color-scheme: dark;
+  --color-canvas-default: transparent;
+  --color-fg-default: #e6edf3;
+  --color-fg-muted: rgba(255,255,255,0.5);
+  --color-border-default: rgba(255,255,255,0.1);
+  font-size: 15px;
+  line-height: 1.7;
+}
+
+#text-container {
+  width: min(1400px, 90vw);
+  margin: 0 auto;
+  padding: 15px 30px;
+  background: rgba(12, 12, 12, 0.6);
+  backdrop-filter: blur(1px);
+}
+
+#about-text, #info-text {
+  text-align: left;
+}
+
+.about-container {
+  position: relative;
+  z-index: 2;
+  max-width: 680px;
+  margin: 60px auto 0;
+  padding: 0 24px;
+  text-align: left;
+}
+
+.about-section {
+  padding: 36px 0;
+}
+
+.about-divider {
+  border: none;
+  border-top: 0.5px solid rgba(255, 255, 255, 0.08);
+}
+
+.about-label {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 14px;
+  color: #4CBB17;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin-bottom: 12px;
+  font-size: 12px;
+  text-shadow: none;
+}
+
+.about-description {
+  font-size: 16px;
+  color: rgba(255, 255, 255, 0.6);
+  line-height: 1.8;
+  margin-top: 16px;
+}
+
+.about-institution {
+  font-size: 18px;
+  color: white;
+  font-weight: 400;
+  margin-bottom: 6px;
+}
+
+.about-course {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 15px;
+  color: rgba(255, 255, 255, 0.4);
+  letter-spacing: 0.04em;
+}
+
+.team-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.team-card {
+  background: rgba(255, 255, 255, 0.04);
+  border: 0.5px solid rgba(74, 222, 128, 0.2);
+  border-radius: 8px;
+  padding: 16px;
+  font-size: 16px;
+  color: rgba(255, 255, 255, 0.75);
+  text-align: center;
 }

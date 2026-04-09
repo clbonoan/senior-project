@@ -2,7 +2,7 @@
 <html lang="en">
   
 <head>
-  <title>Shadow Check</title>
+  <title>Information</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   <link rel ="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.png')}}">
 </head>
@@ -17,7 +17,7 @@
         <span class="nav-wordmark">Shadow Check</span>
       </a>
     </div>
-    <div class="nav-right">
+    <div class="nav-right" id="nav-right">
       <a href="/repo">Repository </a>
       <a href="/about">About</a>
       <a href="/info" class="active">Information</a>
@@ -29,13 +29,10 @@
     </button>
   </nav>
 
-  <h1 id="titles"> Information </h1>
-  
-  <p> This project aims to train a machine learning model to detect image tampering through shadow-based features such as texture, lighting, and depth. 
-  The focus is on urban infrastructure, where aerial and ground-level images are frequently utilized to monitor potential projects and development progress. 
-  We plan to develop a web application that analyzes an image's shadows and provides a tampering likelihood score with a visual of suspicious regions. 
-  Our approach uses pixel-based algorithms to extract shadow texture, lighting strength, and depth characteristics to improve detection accuracy. 
-  We aim to support digital forensics and ensure the authenticity of urban imagery used in planning and reporting. </p>
+  <div id="text-container">
+    <h1 id="titles">Information</h1>
+    <p id="info-text"> filler </p>
+  </div>
 
   <script src="{{ url_for('static', filename='app.js') }}"></script>
   <script>

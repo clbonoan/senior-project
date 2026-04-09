@@ -2,10 +2,10 @@
 <html lang="en">
 
 <head>
-    <title>Shadow Check</title>
+    <title>Repository</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <link rel ="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.png')}}">
-    <!--<link rel="stylesheet" href="https://unpkg.com/github-markdown-css@5.5.1/github-markdown.min.css">-->
+    <link rel="stylesheet" href="https://unpkg.com/github-markdown-css@5.5.1/github-markdown.min.css">
 </head>
 
 <body>
@@ -18,7 +18,7 @@
             <span class="nav-wordmark">Shadow Check</span>
         </a>
     </div>
-    <div class="nav-right">
+    <div class="nav-right" id="nav-right">
         <a href="/repo" class="active">Repository </a>
         <a href="/about">About</a>
         <a href="/info">Information</a>
@@ -36,22 +36,21 @@
     </a>
     <br>
     <br>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <div id="readme-container">
         <div class="markdown-body" id="readme">
-            <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
             <script>
-                    const owner = "clbonoan";
-                    const repo = "senior-project";
-                    const branch = "main";
+                const owner = "clbonoan";
+                const repo = "senior-project";
+                const branch = "main";
+                const readmeUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/README.md`;
 
-                    const readmeUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/README.md`;
-
-                    async function loadReadme() {
-                        const res = await fetch(readmeUrl);
-                        const md  = await res.text();
-                        document.getElementById('readme').innerHTML = marked.parse(md);
-                    }
-                    loadReadme();
+                async function loadReadme() {
+                    const res = await fetch(readmeUrl);
+                    const md  = await res.text();
+                    document.getElementById('readme').innerHTML = marked.parse(md);
+                }
+                loadReadme();
             </script>
         </div>
    </div>
