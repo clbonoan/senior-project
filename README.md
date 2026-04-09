@@ -17,15 +17,15 @@ interface and receive tamper detection results from multiple analysis approaches
 - Interactive web interface for image upload and analysis output
 - Real-time tamper detection and scoring
 - Dual analysis modes:
-    - Manual feature engineering (rule-based + ML) with interpretable results
-    - Automated feature learning (DL) for enhanced accuracy
+    - Manual feature engineering and threshold scores (rule-based) with interpretable results
+    - Learned patterns based on feature selection (ML) to predict outcomes
 - Shadow detection and analysis across three shadow features: texture, lighting, and depth
 - Comparative results showing probability scores and threshold-based classifications
 
 ## Technologies Used
 **Backend:**
 - Python (3.13.7)
-- FastAPI
+- Flask
 - OpenCV and scikit-image (image processing)
 - scikit-learn (machine learning)
 - NumPy and SciPy (numerical computations)
@@ -49,8 +49,7 @@ interface and receive tamper detection results from multiple analysis approaches
 - scikit-image
 - pandas
 - scikit-learn
-- uvicorn
-- fastapi
+- flask
 - numpy
 - scipy
 
@@ -63,6 +62,7 @@ cd senior-project
 ```
 
 2. Start virtual environment:
+
 **Windows**
 ```bash
 C:\venvs\global\Scripts\Activate.ps1
@@ -99,11 +99,15 @@ python scripts/extract_csv.py --images data/images --labels data/labels.csv --fe
 - Saves measurements to 'data/features.csv'
 
 ### Running the Web Application
-Start the FastAPI backend and enable auto-reload as project files change:
+Start the Flask backend (do a standard run):
 ```bash
-uvicorn main:app --reload
+flask --app main run
 ```
-Access the web interface, open your browser, and navigate to http://127.0.0.1:8000
+OR run in debug mode (auto-reload):
+```bash
+flask --app main run --debug
+```
+Access the web interface, open your browser, and navigate to http://127.0.0.1:5000
 
 ## Project Structure
 ```
