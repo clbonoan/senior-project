@@ -185,8 +185,7 @@ Access the web interface, open your browser, and navigate to http://127.0.0.1:50
 |   ├── correlation_analysis.py     # Feature correlation analysis
 |   ├── train_module_models.py      # Train individual module models
 |   ├── train_stacking_model.py     # Train stacking/ensemble model
-|   ├── save_models.py              # Save trained models to /models
-|   └── checker.py                  # Debugging/validation script
+|   └── save_models.py              # Save trained models to /models
 ├── static/                         # Front-end assets
 │   ├── app.js                      # JavaScript application logic
 │   ├── favicon.png                 # Website favicon
