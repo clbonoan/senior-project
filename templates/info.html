@@ -29,13 +29,81 @@
     </button>
   </nav>
 
-  <div id="text-container">
-    <h1 id="titles">Information</h1>
-    <p id="info-text"> filler </p>
+  <div class="text-container">
+    <h1 class="titles">Information</h1>
+    <br>
+    <p id="info-text">
+    This project focuses on detecting image tampering using shadow-based feature 
+    analysis. It targets urban infrastructure imagery, where ground-level images are 
+    commonly used to monitor development progress and inform planning decisions.
+    <br>
+    <br>
+    The system uses pixel-based algorithms to extract features related to texture, 
+    lighting, and depth, and it evaluates them using a dual-path approach: a rule-based
+    method that applies threshold-driven logic and a machine learning pipeline that 
+    learns patterns from the same engineered features.
+    <br>
+    <br>
+    A web application allows users to upload images and receive a tampering likelihood
+    score with supporting analysis details. By combining explainable heuristics with 
+    data-driven models, we aim to improve the reliability and authenticity of
+    visual data used in urban planning and reporting.
+    </p>
+
+    <br>
+
+    <hr>
+    <h1 class="titles">FAQ</h1>
+    <br>
+    <div id="faq-container">
+
+      <!-- accordion style faq questions -->
+      <div class="faq-item">
+        <button class="faq-question">
+          <span>How does the system detect tampering?</span>
+          <span class="arrow">&#9660;</span>
+        </button>
+        <div class="faq-answer">
+          <p>
+            The system extracts shadow-related features from the image and evaluates
+            them using both rule-based scoring and a machine learning pipeline.
+          </p>
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-question">
+          <span>What kind of images should I use?</span>
+          <span class="arrow">&#9660;</span>
+        </button>
+        <div class="faq-answer">
+          <p>
+            Urban infrastructure related images with visible shadows and clear 
+            lighting conditions work best.
+          </p>
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <button class="faq-question">
+          <span>Do the results guarantee an image is fake?</span>
+          <span class="arrow">&#9660;</span>
+        </button>
+        <div class="faq-answer">
+          <p>
+            No, these results are an estimate based on the detected shadow evidence 
+            and should only be used as a supporting analysis rather than definitive
+            proof.
+          </p>
+        </div>
+      </div>
+
+    </div>
   </div>
 
   <script src="{{ url_for('static', filename='app.js') }}"></script>
   <script>
+    /* creating the background dot design */
     (function () {
       const canvas = document.getElementById('hex-canvas');
       const ctx = canvas.getContext('2d');
@@ -58,7 +126,7 @@
           for (let col = 0; col < cols; col++) {
             const x = col * spacingX;
 
-            /* wave: each row curves like a sine hill */
+            /* wave: each row curves like a sine graph */
             const progress = col / cols;
             const wave = Math.sin(progress * Math.PI) * (H * 0.28)
                         + Math.sin(progress * Math.PI * 2.5) * (H * 0.08)
@@ -69,7 +137,7 @@
             const distFromPeak = Math.abs(row - rows * 0.3);
             const brightness = Math.max(0, 1 - distFromPeak / (rows * 0.6));
 
-            /* dots further from center column fade out */
+            /* dots further from center fade out */
             const edgeFade = Math.sin(progress * Math.PI);
 
             const opacity = brightness * edgeFade * 0.75;
@@ -88,13 +156,31 @@
       window.addEventListener('load', draw);
       window.addEventListener('resize', draw);
     })();
-  </script>
-  <script>
+
+    /* handling functionality for hamburger icon */
     const hamburger = document.getElementById('hamburger');
     const navRight = document.getElementById('nav-right');
     hamburger.addEventListener('click', () => {
       hamburger.classList.toggle('open');
       navRight.classList.toggle('open');
+    });
+
+    /* handling the faq accordion functionality */
+    const faqQuestions = document.querySelectorAll('.faq-question');
+
+    faqQuestions.forEach((question) => {
+      question.addEventListener('click', () => {
+        const currentItem = question.parentElement;
+        const isActive = currentItem.classList.contains('active');
+
+        document.querySelectorAll('.faq-item').forEach((item) => {
+          item.classList.remove('active');
+        });
+
+        if (!isActive) {
+          currentItem.classList.add('active');
+        }
+      });
     });
   </script>
   

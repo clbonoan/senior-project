@@ -30,8 +30,9 @@
     </button>
     </nav>
 
-    <h1 id="titles">README.md from GitHub Repository</h1>
-    <a target="_blank" rel="noopener noreferrer" href="https://www.github.com/clbonoan/senior-project" id="repo-link">
+    <h1 class="titles">README.md from GitHub Repository</h1>
+    <br>
+    <a href="https://www.github.com/clbonoan/senior-project" id="repo-link" target="_blank" rel="noopener noreferrer">
         GO TO REPOSITORY
     </a>
     <br>
@@ -58,6 +59,7 @@
     <!--<iframe src="https://github.com/clbonoan/senior-project" title="GitHub Repository"></iframe>-->
 
     <script>
+        /* creating the background dot design */
         (function () {
             const canvas = document.getElementById('hex-canvas');
             const ctx = canvas.getContext('2d');
@@ -110,8 +112,8 @@
             window.addEventListener('load', draw);
             window.addEventListener('resize', draw);
         })();
-    </script>
-    <script>
+
+        /* handling functionality for hamburger icon */
         const hamburger = document.getElementById('hamburger');
         const navRight = document.getElementById('nav-right');
         hamburger.addEventListener('click', () => {
@@ -119,5 +121,6 @@
             navRight.classList.toggle('open');
         });
     </script>
+
 </body>
 </html>

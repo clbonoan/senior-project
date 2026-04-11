@@ -28,56 +28,48 @@
     </button>
   </nav>
 
-  <h1 id="home-title">
-    <span class="title-plain">Shadow</span>
-    <span class="title-accent">Check</span>
-  </h1>
+  <div id="home-container">
+    <h1 id="home-title">
+      <span class="title-plain">Shadow</span>
+      <span class="title-accent">Check</span>
+    </h1>
 
-  <h3>Upload a ground-level urban image to see how our system detects
-    <br> image tampering in urban infrastructure images through shadow features.
-  </h3>
+    <h3>Upload a ground-level urban image to see how our system detects
+      <br> image tampering in urban infrastructure images through shadow features.
+    </h3>
 
-  <form id="uploadForm">
-    <label for="fileInput" class="custom-upload" id="customUpload">
-      <div class="upload-title">Click to Upload Image</div>
-      <div class="upload-info">Supports JPEG, JPG</div>
-    </label>
-    <input type="file" id="fileInput" name="file" hidden/>
-  </form>
+    <form id="uploadForm">
+      <label for="fileInput" class="custom-upload" id="customUpload">
+        <div class="upload-title">Click to Upload Image</div>
+        <div class="upload-info">Supports JPEG, JPG</div>
+      </label>
+      <input type="file" id="fileInput" name="file" hidden/>
+    </form>
 
-  <br>
-  <br>
-  <!-- <div class="methods">
-    <button class="method" id="mlButton" type="button">
-      <span class="method-title">Machine Learning</span>
-      <small>Rule-Based + Random Forest</small>
-    </button>
-    button class="method" id="dlButton" type="button">
-      <span class="method-title">Deep Learning</span>
-      <small>CNN-Based Detection</small>
-    </button> 
-  </div> -->
+    <br>
+    <br>
 
-  <div id="preview-container">
-    <img id="preview" src="" alt="Image preview will appear here">
+    <div id="preview-container">
+      <img id="preview" src="" alt="Image preview will appear here">
+    </div>
+
+    <div class="analyze-row">
+      <button id="analyzeButton" type="button" hidden>
+        Analyze
+      </button>
+    </div>
+
+    <div class="analyzing-section">
+        <div id="loadingIndicator" class="hidden">Analyzing image…</div>
+    </div>
+
+    <div id="total-result-container">
+      <div id="result"></div>
+    </div>
   </div>
-
-  <div class="analyze-row">
-    <button id="analyzeButton" type="button" hidden>
-      Analyze
-    </button>
-  </div>
-
-  <div class="analyzing-section">
-      <div id="loadingIndicator" class="hidden">Analyzing image…</div>
-  </div>
-
-  <div id="total-result-container">
-    <div id="result"></div>
-  </div>
-
   <script src="{{ url_for('static', filename='app.js') }}"></script>
   <script>
+    /* creating the background dot design */
     (function () {
       const canvas = document.getElementById('hex-canvas');
       const ctx = canvas.getContext('2d');
@@ -130,8 +122,8 @@
       window.addEventListener('load', draw);
       window.addEventListener('resize', draw);
     })();
-  </script>
-  <script>
+
+    /* handling functionality for hamburger icon */
     const hamburger = document.getElementById('hamburger');
     const navRight = document.getElementById('nav-right');
     hamburger.addEventListener('click', () => {
@@ -139,5 +131,6 @@
       navRight.classList.toggle('open');
     });
   </script>
+
 </body>
 </html>

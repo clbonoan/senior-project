@@ -29,8 +29,9 @@
     </button>
   </nav>
 
-  <div id="text-container">
-    <h1 id="titles">About</h1>
+  <div class="text-container">
+    <h1 class="titles">About</h1>
+    <br>
     <p id="about-text">
       This project is a senior capstone project developed at CSU Bakersfield for the Senior Design Expo. 
       This system detects image tampering in urban infrastructure photographs, where ground-level images are frequently used to 
@@ -55,15 +56,42 @@
     <div class="about-section">
       <p class="about-label">Team</p>
       <div class="team-grid">
-        <div class="team-card">Christine Bonoan</div>
-        <div class="team-card">Edwin Aviles</div>
+        <div class="team-member">
+          <button class="team-card team-toggle" type="button">
+            <span>Christine Bonoan</span>
+            <span class="team-arrow">&#9662</span>
+          </button>
+          <div class="team-links">
+            <a href="https://github.com/clbonoan" target="_blank" rel="noopener noreferrer">
+              GitHub
+            </a>
+            <a href="https://www.linkedin.com/in/clbonoan/" target="_blank" rel="noopener noreferrer">
+              LinkedIn
+            </a>
+          </div>
+        </div>
+        
+        <div class="team-member">
+          <button class="team-card team-toggle" type="button">
+            <span>Edwin Aviles</span>
+            <span class="team-arrow">&#9662</span>
+          </button>
+          <div class="team-links">
+            <a href="https://github.com/greenboigamer" target="_blank" rel="noopener noreferrer">
+              GitHub
+            </a>
+            <a href="https://www.linkedin.com/in/edwin-aviles-869b63212/" target="_blank" rel="noopener noreferrer">
+              LinkedIn
+            </a>
+          </div>
+        </div>
       </div>
     </div>
-
   </div>
   
   <script src="{{ url_for('static', filename='app.js') }}"></script>
   <script>
+    /* creating the background dot design */
     (function () {
       const canvas = document.getElementById('hex-canvas');
       const ctx = canvas.getContext('2d');
@@ -116,14 +144,34 @@
       window.addEventListener('load', draw);
       window.addEventListener('resize', draw);
     })();
-  </script>
-  <script>
+
+    /* handling functionality for hamburger icon */
     const hamburger = document.getElementById('hamburger');
     const navRight = document.getElementById('nav-right');
     hamburger.addEventListener('click', () => {
       hamburger.classList.toggle('open');
       navRight.classList.toggle('open');
     });
+
+    /* functionality for team member drop downs */
+    const teamMembers = document.querySelectorAll('.team-member');
+
+    teamMembers.forEach((member) => {
+      const toggle = member.querySelector('.team-toggle');
+
+      toggle.addEventListener('click', () => {
+        const isActive = member.classList.contains('active');
+
+        // close all
+        teamMembers.forEach((m) => m.classList.remove('active'));
+
+        // open only this one if it was closed
+        if (!isActive) {
+          member.classList.add('active');
+        }
+      });
+    });
   </script>
+
 </body>
 </html>
