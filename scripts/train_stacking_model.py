@@ -5,7 +5,7 @@ import pandas as pd
 from pathlib import Path
 import matplotlib.pyplot as plt
 
-from sklearn.model_selection import StratifiedKFold, cross_val_score, cross_val_predict
+from sklearn.model_selection import StratifiedGroupKFold, cross_val_score, cross_val_predict
 from sklearn.pipeline import Pipeline
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import StandardScaler
@@ -17,7 +17,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.svm import SVC
 
 # choose final stacking classifier (logreg, rf, svm)
-MODEL_TYPE = "rf"
+MODEL_TYPE = "logreg"
 
 # go to project's root directory
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -30,21 +30,26 @@ stack_df = pd.read_csv(STACKING_CSV)
 print("\nColumns found:")
 print(stack_df.columns.tolist())
 
+def base_image_group(image_id):
+    '''
+    group related files so variants of the same base image stay in the same fold
+
+    examples:
+      15.jpg -> 15
+      15-edited.jpg -> 15
+      15.2-edited.jpg -> 15
+    '''
+    name = Path(str(image_id)).stem
+    root = name.split("-")[0].split(".")[0]
+    return root
+
 # PREPARE X AND y
 # X = the 3 learned probabilities from stage 1
 X = stack_df[["texture_prob", "lighting_prob", "depth_prob"]].copy()
 # y = true labels
 y = stack_df["label"].copy()
 
-# TRAIN/TEST SPLIT
-# split stacking dataset into 80% train, 20% split
-# X_train, X_test, y_train, y_test = train_test_split(
-#     X,
-#     y,
-#     test_size=0.2,
-#     random_state=42,
-#     stratify=y
-# )
+groups = stack_df["image_id"].apply(base_image_group)
 
 # BUILD MODEL
 def make_model(model_type):
@@ -79,8 +84,8 @@ final_model = make_model(MODEL_TYPE)
 
 print(f"\nTraining final stacking model using: {MODEL_TYPE}")
 
-cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
-scores = cross_val_score(final_model, X, y, cv=cv, scoring="accuracy")
+cv = StratifiedGroupKFold(n_splits=5, shuffle=True, random_state=42)
+scores = cross_val_score(final_model, X, y, cv=cv, groups=groups, scoring="accuracy")
 
 print(f"\nFusion model: {MODEL_TYPE}")
 print("Fold accuracies:", scores)
@@ -88,9 +93,9 @@ print("Mean accuracy:", scores.mean())
 print("Std:", scores.std())
 
 # OUT-OF-FOLD PREDICTIONS
-y_pred = cross_val_predict(final_model, X, y, cv=cv, method="predict")
+y_pred = cross_val_predict(final_model, X, y, cv=cv, groups=groups, method="predict")
 # fusion model’s own probability for class 1, where true values are 0=real 1=tampered
-y_prob = cross_val_predict(final_model, X, y, cv=cv, method="predict_proba")[:, 1]
+y_prob = cross_val_predict(final_model, X, y, cv=cv, groups=groups, method="predict_proba")[:, 1]
 
 # METRICS FROM OOF PREDICTIONS
 acc = accuracy_score(y, y_pred)
