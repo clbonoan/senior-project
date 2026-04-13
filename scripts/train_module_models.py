@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 
-from sklearn.model_selection import StratifiedKFold
+from sklearn.model_selection import StratifiedGroupKFold
 from sklearn.pipeline import Pipeline
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import StandardScaler
@@ -28,6 +28,11 @@ DATA_DIR = PROJECT_ROOT / "data"
 texture_csv = DATA_DIR / "texture_features.csv"
 lighting_csv = DATA_DIR / "lighting_features.csv"
 depth_csv = DATA_DIR / "depth_features.csv"
+
+# TESTING to see if grouped CV is the correct choice, so use one edited image per real image
+# texture_csv = DATA_DIR / "texture_features_one_edit_per_base.csv"
+# lighting_csv = DATA_DIR / "lighting_features_one_edit_per_base.csv"
+# depth_csv = DATA_DIR / "depth_features_one_edit_per_base.csv"
 
 # load feature files into dataframes
 texture_df = pd.read_csv(texture_csv)
@@ -52,10 +57,25 @@ def prepare_features(df, rule_col, error_col):
 
     return X, y
 
+def base_image_group(image_id):
+    '''
+    group related files so variants of the same base image stay in the same fold.
+    examples:
+      15.jpg -> 15
+      15-edited.jpg -> 15
+      15.2-edited.jpg -> 15
+    '''
+    name = Path(str(image_id)).stem
+    root = name.split("-")[0].split(".")[0]
+    return root
+
 # extract ML features from each module dataset
 X_texture, y = prepare_features(texture_df, "rule_score_texture", "texture_error")
 X_lighting, _ = prepare_features(lighting_df, "rule_score_lighting", "lighting_error")
 X_depth, _ = prepare_features(depth_df, "rule_score_depth", "depth_error")
+
+# groups for grouped cross-validation
+groups = texture_df["image_id"].apply(base_image_group)
 
 # DEBUG
 print("\nFeature shapes:")
@@ -67,6 +87,13 @@ print("\nMissing values after cleanup:")
 print("Texture:", int(X_texture.isna().sum().sum()))
 print("Lighting:", int(X_lighting.isna().sum().sum()))
 print("Depth:", int(X_depth.isna().sum().sum()))
+
+print("\nDistinct groups:", groups.nunique())
+print("Sample groups:")
+print(pd.DataFrame({
+    "image_id": texture_df["image_id"].head(15),
+    "group": groups.head(15)
+}))
 
 # MODEL (CLASSIFIER) BUILDER BASED ON MODEL_TYPE
 def make_model(model_type):
@@ -99,8 +126,13 @@ def make_model(model_type):
         ])
     else:
         raise ValueError(f"Unknown MODEL_TYPE: {model_type}")
+    
+def positive_class_proba(model, X, positive_label=1):
+    classes = model.named_steps["model"].classes_
+    pos_idx = np.where(classes == positive_label)[0][0]
+    return model.predict_proba(X)[:, pos_idx]
 
-skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+skf = StratifiedGroupKFold(n_splits=5, shuffle=True, random_state=42)
 
 texture_oof = np.zeros(len(y))
 lighting_oof = np.zeros(len(y))
@@ -110,12 +142,17 @@ texture_fold_acc = []
 lighting_fold_acc = []
 depth_fold_acc = []
 
-for fold, (train_idx, val_idx) in enumerate(skf.split(X_texture, y), start=1):
+for fold, (train_idx, val_idx) in enumerate(skf.split(X_texture, y, groups=groups), start=1):
     X_train_tex, X_val_tex = X_texture.iloc[train_idx], X_texture.iloc[val_idx]
     X_train_light, X_val_light = X_lighting.iloc[train_idx], X_lighting.iloc[val_idx]
     X_train_depth, X_val_depth = X_depth.iloc[train_idx], X_depth.iloc[val_idx]
 
     y_train, y_val = y.iloc[train_idx], y.iloc[val_idx]
+
+    train_groups = set(groups.iloc[train_idx])
+    val_groups = set(groups.iloc[val_idx])
+    overlap = train_groups.intersection(val_groups)
+    print(f"\nFold {fold}: train groups = {len(train_groups)}, val groups = {len(val_groups)}, overlap = {len(overlap)}")
 
     texture_model = make_model(MODEL_TYPE)
     lighting_model = make_model(MODEL_TYPE)
@@ -126,24 +163,60 @@ for fold, (train_idx, val_idx) in enumerate(skf.split(X_texture, y), start=1):
     depth_model.fit(X_train_depth, y_train)
 
     # raw sklearn probabilities for class 1 (class 1 = tampered)
-    texture_prob_raw = texture_model.predict_proba(X_val_tex)[:, 1]
-    lighting_prob_raw = lighting_model.predict_proba(X_val_light)[:, 1]
-    depth_prob_raw = depth_model.predict_proba(X_val_depth)[:, 1]
+    texture_prob_raw = positive_class_proba(texture_model, X_val_tex, positive_label=1)
+    lighting_prob_raw = positive_class_proba(lighting_model, X_val_light, positive_label=1)
+    depth_prob_raw = positive_class_proba(depth_model, X_val_depth, positive_label=1)
 
-    # flip values here so higher probability means more likely tampered
-    texture_oof[val_idx] = 1 - texture_prob_raw
-    lighting_oof[val_idx] = 1 - lighting_prob_raw
-    depth_oof[val_idx] = 1 - depth_prob_raw
+    # store tampered probabilities
+    texture_oof[val_idx] = texture_prob_raw
+    lighting_oof[val_idx] = lighting_prob_raw
+    depth_oof[val_idx] = depth_prob_raw
 
     # module predictions
     texture_pred = texture_model.predict(X_val_tex)
     lighting_pred = lighting_model.predict(X_val_light)
     depth_pred = depth_model.predict(X_val_depth)
 
+    print(f"Fold {fold} texture prob mean by true label:")
+    print(pd.Series(texture_prob_raw).groupby(y_val.reset_index(drop=True)).mean())
+
+    print(f"Fold {fold} texture confusion counts:")
+    print(pd.crosstab(
+        y_val.reset_index(drop=True),
+        pd.Series(texture_pred, name="pred"),
+        rownames=["true"],
+        colnames=["pred"],
+        dropna=False
+    ))
+
+    # CHECKS
+    print(f"Fold {fold} lighting confusion counts:")
+    print(pd.crosstab(
+        y_val.reset_index(drop=True),
+        pd.Series(lighting_pred, name="pred"),
+        rownames=["true"],
+        colnames=["pred"],
+        dropna=False
+    ))
+
+    print(f"Fold {fold} depth confusion counts:")
+    print(pd.crosstab(
+        y_val.reset_index(drop=True),
+        pd.Series(depth_pred, name="pred"),
+        rownames=["true"],
+        colnames=["pred"],
+        dropna=False
+    ))
+
     # module accuracies per fold
     texture_fold_acc.append(accuracy_score(y_val, texture_pred))
     lighting_fold_acc.append(accuracy_score(y_val, lighting_pred))
     depth_fold_acc.append(accuracy_score(y_val, depth_pred))
+
+    texture_acc = accuracy_score(y_val, texture_pred)
+    texture_acc_inv = accuracy_score(y_val, 1 - texture_pred)
+
+    print(f"Texture acc: {texture_acc:.3f}, inverted: {texture_acc_inv:.3f}")
 
 print(f"\n{MODEL_TYPE} OOF module accuracies")
 print(f"Texture mean acc:  {np.mean(texture_fold_acc):.3f}")
@@ -168,6 +241,9 @@ print(stack_df.groupby("label")[["texture_prob", "lighting_prob", "depth_prob"]]
 
 print("\nProbability medians by label:")
 print(stack_df.groupby("label")[["texture_prob", "lighting_prob", "depth_prob"]].median())
+
+print("\nCheck:")
+print(stack_df.groupby("label")[["texture_prob"]].mean())
 
 stack_path = DATA_DIR / "stacking_features_oof.csv"
 stack_df.to_csv(stack_path, index=False)

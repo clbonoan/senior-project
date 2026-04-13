@@ -134,8 +134,10 @@ def build_feature_rows(labels_df):
             **tex["features"],
         }
         
-        tex = safe_analyze("texture", run_texture, image_path)
         print("DEBUG texture tamper score:", tex["tamper_score"])
+
+        # tex = pd.read_csv("data/texture_features.csv")
+        # print(tex.groupby("label").mean(numeric_only=True).T)
 
         lighting_row = {
             "image_id": image_id,
