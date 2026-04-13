@@ -4,6 +4,7 @@
 import numpy as np
 import pandas as pd
 from pathlib import Path
+from collections import Counter
 
 from sklearn.model_selection import StratifiedGroupKFold
 from sklearn.pipeline import Pipeline
@@ -14,6 +15,8 @@ from sklearn.metrics import accuracy_score
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.svm import SVC
+
+from feature_selection import select_texture_features
 
 # choose classifier by changing to "logreg" (Logistic Regression),
 # "rf" (Random Forest), or "svm" (Support Vector Machine):
@@ -74,6 +77,8 @@ X_texture, y = prepare_features(texture_df, "rule_score_texture", "texture_error
 X_lighting, _ = prepare_features(lighting_df, "rule_score_lighting", "lighting_error")
 X_depth, _ = prepare_features(depth_df, "rule_score_depth", "depth_error")
 
+texture_feature_names = list(X_texture.columns)
+
 # groups for grouped cross-validation
 groups = texture_df["image_id"].apply(base_image_group)
 
@@ -132,6 +137,9 @@ def positive_class_proba(model, X, positive_label=1):
     pos_idx = np.where(classes == positive_label)[0][0]
     return model.predict_proba(X)[:, pos_idx]
 
+# track how often each texture feature is selected across folds
+texture_feature_counter = Counter()
+
 skf = StratifiedGroupKFold(n_splits=5, shuffle=True, random_state=42)
 
 texture_oof = np.zeros(len(y))
@@ -149,6 +157,26 @@ for fold, (train_idx, val_idx) in enumerate(skf.split(X_texture, y, groups=group
 
     y_train, y_val = y.iloc[train_idx], y.iloc[val_idx]
 
+    # ------------------------------------------
+    # texture feature selection on TRAIN fold only
+    # ------------------------------------------
+    # using the selected 20 features per fold (adapting per fold) out of the 36 in texture.py
+    X_train_tex_selected, selected_texture_names = select_texture_features(
+        X_train_tex.to_numpy(),
+        list(X_train_tex.columns),
+        y_train.to_numpy(),
+        k=20
+    )
+
+    # apply the SAME selected columns to validation fold
+    X_val_tex_selected = X_val_tex[selected_texture_names].to_numpy()
+
+    print(f"Fold {fold} selected texture features: {len(selected_texture_names)}")
+    print(selected_texture_names)
+    
+    # count how often each texture feature is selected
+    texture_feature_counter.update(selected_texture_names)
+    
     train_groups = set(groups.iloc[train_idx])
     val_groups = set(groups.iloc[val_idx])
     overlap = train_groups.intersection(val_groups)
@@ -158,12 +186,14 @@ for fold, (train_idx, val_idx) in enumerate(skf.split(X_texture, y, groups=group
     lighting_model = make_model(MODEL_TYPE)
     depth_model = make_model(MODEL_TYPE)
 
-    texture_model.fit(X_train_tex, y_train)
+    # texture_model.fit(X_train_tex, y_train)
+    texture_model.fit(X_train_tex_selected, y_train)
     lighting_model.fit(X_train_light, y_train)
     depth_model.fit(X_train_depth, y_train)
 
     # raw sklearn probabilities for class 1 (class 1 = tampered)
-    texture_prob_raw = positive_class_proba(texture_model, X_val_tex, positive_label=1)
+    # texture_prob_raw = positive_class_proba(texture_model, X_val_tex, positive_label=1)
+    texture_prob_raw = positive_class_proba(texture_model, X_val_tex_selected, positive_label=1)
     lighting_prob_raw = positive_class_proba(lighting_model, X_val_light, positive_label=1)
     depth_prob_raw = positive_class_proba(depth_model, X_val_depth, positive_label=1)
 
@@ -173,7 +203,8 @@ for fold, (train_idx, val_idx) in enumerate(skf.split(X_texture, y, groups=group
     depth_oof[val_idx] = depth_prob_raw
 
     # module predictions
-    texture_pred = texture_model.predict(X_val_tex)
+    # texture_pred = texture_model.predict(X_val_tex)
+    texture_pred = texture_model.predict(X_val_tex_selected)    
     lighting_pred = lighting_model.predict(X_val_light)
     depth_pred = depth_model.predict(X_val_depth)
 
@@ -217,6 +248,10 @@ for fold, (train_idx, val_idx) in enumerate(skf.split(X_texture, y, groups=group
     texture_acc_inv = accuracy_score(y_val, 1 - texture_pred)
 
     print(f"Texture acc: {texture_acc:.3f}, inverted: {texture_acc_inv:.3f}")
+
+print("\nTexture feature selection frequency across folds:")
+for feat, count in texture_feature_counter.most_common():
+    print(f"{feat}: {count}/5")
 
 print(f"\n{MODEL_TYPE} OOF module accuracies")
 print(f"Texture mean acc:  {np.mean(texture_fold_acc):.3f}")
