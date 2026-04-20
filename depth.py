@@ -1,11 +1,10 @@
-# Third Feature: 
+# Third Feature:
 # - analyzing shadows through penumbra hardness (edge width)
-# - direction consistency (shadow orientation)
+# - elongation consistency (shadow shape)
 
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.spatial.distance import pdist
 from typing import Dict, List, Tuple, Optional
 from pathlib import Path
 
@@ -110,9 +109,9 @@ def percentile(arr, p):
 # ----------------------------------------------------------
 # PENUMBRA HARDNESS
 # ----------------------------------------------------------
-def estimate_edge_width_contrast(profile, k_side=5, min_delta=5.0):
+def estimate_edge_width_contrast(profile, side_window=4, min_contrast=5.0, smooth_size=5):
     '''
-    measure how hard or soft a shadow edge is
+    estimate how soft or hard a shadow edge is from a 1D intensity profile
 
     idea:
     - a shadow's edge relates to its penumbra, and typically a true shadow has a softer edge
@@ -120,74 +119,110 @@ def estimate_edge_width_contrast(profile, k_side=5, min_delta=5.0):
         - soft shadow: gradual fade, slow transition (width is about 10-20 pixels) ** MAY NEED TO CHANGE VALUES FOR THIS **
     
     how we measured it:
-    - look at a line of pixels crossing the shadow edge and find the following:
-        - how bright is the shadow side (inside value)
-        - how bright is the lit side (outside value)
-        - how many pixels does it take to go from 10% to 90% of that transition
+    - we take a line of pixel values that crosses a shadow boundary
+    - the shadow side should be darker
+    - the lit side should be brighter
+    - the penumbra width is how long it takes to go from 10% to 90% of that brightness change
     
-    function's arguments:
-    - profile: array of intensity values crossing shadow edge
-        ex: [50, 52, 55, 60, 70, 85, 100, 105, 110]
-            |shadow|   |transition|     |lit|
-    - k_side: how many pixels to average for inside/outside (default set to 5)
-    - min_delta: minimum brightness difference to be a real edge (default set to 5)
-
     return:
-    - width_px: how wide the transition is in pixels
-    - contrast: how much darker is the shadow (intensity difference)
+    - width_px: estimated penumbra width/how wide the transition is in pixels
+    - contrast: brightness difference across edge/how much darker is the shadow
     '''
     profile = np.asarray(profile, dtype=np.float32)
-    n = profile.size
+    num_values = profile.size
 
     # need enough pixels to measure
-    if n < 2 * k_side + 3:
+    if num_values < 2 * side_window + 5:
         return 0.0, 0.0
     
-    # measure average brightness on each side
-    inside = float(np.mean(profile[:k_side]))   # first k pixels (shadow side)
-    outside = float(np.mean(profile[-k_side:]))     # last k pixels (lit side)
+    # smooth the profile a little bit so tiny texture changes do not dominate
+    if smooth_size >= 3:
+        smoothed_profile = cv2.GaussianBlur(
+            profile.reshape(1, -1), (1, smooth_size), 0
+        ).ravel()
+    else:
+        smoothed_profile = profile.copy()
 
-    # profile should go from dark to bright
-    # if it goes backwards (bright to dark), flip it
-    if inside > outside:
-        profile = profile[::-1]
-        inside, outside = outside, inside
+    # the real boundary should be somewhere near the center of the sampled line
+    center_index = num_values // 2
 
-    # how much darker is the shadow
-    delta = outside - inside
+    # take the 1D gradient of the profile
+    # this tells us where the biggest brightness change happens
+    gradient = np.diff(smoothed_profile)
 
-    # if there's barely any difference, this shouldn't be counted as a real shadow edge
-    if abs(delta) < min_delta:
+    # only search near the middle so we do not accidentally measure some other texture edge
+    search_left = max(0, center_index - num_values // 4)
+    search_right = min(len(gradient), center_index + num_values // 4)
+
+    if search_right <= search_left:
         return 0.0, 0.0
-    
-    # find the 10% to 90% transition points
-    # this is where the width of the penumbra is measured
-    low_val = inside + 0.1 * delta    # 10% of the way from dark to light
-    high_val = inside + 0.9 * delta     # 90% of the way from dark to light
 
-    def first_crossing(target):
-        # find where the profile first crosses a target value
-        for i in range(n-1):
-            if profile[i] <= target <= profile[i+1]:
-                # using linear interpolation for sub-pixel accuracy
-                if abs(profile[i+1] - profile[i]) < 1e-6:
+    middle_gradient = gradient[search_left:search_right]
+
+    # find the strongest edge near the center
+    edge_index = search_left + int(np.argmax(np.abs(middle_gradient)))
+
+    # estimate average brightness on the left side of the edge
+    left_start = max(0, edge_index - side_window + 1)
+    left_end = edge_index + 1
+
+    # estimate average brightness on the right side of the edge
+    right_start = edge_index + 1
+    right_end = min(num_values, edge_index + 1 + side_window)
+
+    if left_end <= left_start or right_end <= right_start:
+        return 0.0, 0.0
+
+    left_value = float(np.mean(smoothed_profile[left_start:left_end]))
+    right_value = float(np.mean(smoothed_profile[right_start:right_end]))
+
+    # force the profile to go from dark -> bright
+    # if not, flip it so the rest of the math stays simple
+    if left_value <= right_value:
+        shadow_value = left_value
+        lit_value = right_value
+    else:
+        shadow_value = right_value
+        lit_value = left_value
+        smoothed_profile = smoothed_profile[::-1]
+
+    contrast = lit_value - shadow_value
+
+    # skip weak edges that are probably not useful
+    if contrast < min_contrast:
+        return 0.0, 0.0
+
+    # define the 10% and 90% brightness levels
+    low_value = shadow_value + 0.1 * contrast
+    high_value = shadow_value + 0.9 * contrast
+
+    def first_crossing(target_value):
+        '''
+        find where the profile first crosses a target brightness level
+        using linear interpolation for a smoother estimate
+        '''
+        for i in range(num_values - 1):
+            a = smoothed_profile[i]
+            b = smoothed_profile[i + 1]
+
+            if (a <= target_value <= b) or (a >= target_value >= b):
+                if abs(b - a) < 1e-6:
                     return float(i)
-                t = (target - profile[i]) / (profile[i+1] - profile[i])
-                return i + t
+
+                t = (target_value - a) / (b - a)
+                return float(i + t)
+
         return -1.0
-    
-    i_low = first_crossing(low_val)
-    i_high = first_crossing(high_val)
 
-    # if both crossing points are not found, count it as 0.0 (invalid measurement)
-    if i_low < 0 or i_high < 0 or i_high <= i_low:
+    low_index = first_crossing(low_value)
+    high_index = first_crossing(high_value)
+
+    if low_index < 0 or high_index < 0 or high_index <= low_index:
         return 0.0, 0.0
-    
-    # width is the distance between 10% to 90% points
-    width_px = float(i_high - i_low)
-    contrast = float(delta)
 
-    return width_px, contrast
+    width_px = float(high_index - low_index)
+
+    return width_px, float(contrast)
 
 # ----------------------------------------------------------
 # SAMPLE PROFILES ALONG SHADOW EDGES
@@ -262,45 +297,49 @@ def sample_profiles_along_contour(
     # sample profiles at regular steps
     for idx in range(0, n_points, step):
         sampled_count += 1
-        p = contour[idx].astype(np.float32)     # current boundary point [x,y]
-        nrm = normals[idx]
+        boundary_point = contour[idx].astype(np.float32)     # current boundary point [x,y]
+        normal_vector = normals[idx]
 
-        if np.linalg.norm(nrm) < 1e-3:
+        if np.linalg.norm(normal_vector) < 1e-3:
             continue
 
         # create a line perpendicular to the boundary
-        # line goes from (p - half_len*normal) to (p + half_len*normal)
-        ts = np.linspace(-half_len, half_len, num_samples).astype(np.float32)
+        # line goes from (boundary_point - half_len*normal) to (boundary_point + half_len*normal)
+        sample_offsets = np.linspace(-half_len, half_len, num_samples).astype(np.float32)
         # x-coords along the line
-        xs = p[0] + ts * nrm[0]
+        x_coords = boundary_point[0] + sample_offsets * normal_vector[0]
         # y-coords along the line
-        ys = p[1] + ts * nrm[1]
+        y_coords = boundary_point[1] + sample_offsets * normal_vector[1]
 
         # convert to integer pixel coords (and clip to image bounds)
-        xs_i = np.clip(np.round(xs).astype(int), 0, w-1)
-        ys_i = np.clip(np.round(ys).astype(int), 0, h-1)
+        x_pixels = np.clip(np.round(x_coords).astype(int), 0, w-1)
+        y_pixels = np.clip(np.round(y_coords).astype(int), 0, h-1)
 
         # extract intensity values along this line
-        profile = gray_img[ys_i, xs_i].astype(np.float32)
+        profile = gray_img[y_pixels, x_pixels].astype(np.float32)
 
-        # verify this line acrosses the shadow boundary
-        # skip lines that are entirely in shadow or entirely in lit area
-        center_idx = num_samples // 2
-        center_in_shadow = mask_bin[ys_i[center_idx], xs_i[center_idx]] > 0
+        # check whether this sampled line crosses a shadow boundary
+        # we want some of the line in shadow and some of it outside shadow
+        line_mask = (mask_bin[y_pixels, x_pixels] > 0).astype(np.uint8)
 
-        if center_in_shadow:
-            # if center is in shadow, make sure some part is lit
-            if np.all(mask_bin[ys_i, xs_i] > 0):
-                # skip if entire line is in shadow
-                rejected_no_crossing += 1
-                continue    
-        else:
-            # if center is lit, make sure some part is shadow
-            if np.all(mask_bin[ys_i, xs_i] == 0):
-                # skip if entire line is in lit
-                rejected_no_crossing += 1
-                continue
-        
+        # skip if the whole line is only shadow or only non-shadow
+        if np.all(line_mask == 0) or np.all(line_mask == 1):
+            rejected_no_crossing += 1
+            continue
+
+        # also make sure the boundary is near the center of the profile
+        # this helps avoid measuring unrelated edges
+        center_index = num_samples // 2
+        center_window = 3
+
+        middle_part = line_mask[
+            max(0, center_index - center_window) : min(num_samples, center_index + center_window + 1)
+        ]
+
+        if np.all(middle_part == 0) or np.all(middle_part == 1):
+            rejected_no_crossing += 1
+            continue
+
         # measure the penumbra width for this profile
         width_px, contrast = estimate_edge_width_contrast(profile)
 
@@ -312,260 +351,308 @@ def sample_profiles_along_contour(
         # store the results
         widths.append(width_px)
         contrasts.append(contrast)
-        center_ys.append(float(p[1]))
-        debug_points.append((int(p[0]), int(p[1])))
+        center_ys.append(float(boundary_point[1]))
+        debug_points.append((int(boundary_point[0]), int(boundary_point[1])))
 
     # CONSOLE DEBUGGING
     # if sampled_count > 0:
-    #     print(f"    [DEBUG] Sampled {sampled_count} locations (every {step} pixels)")
-    #     print(f"    [DEBUG] Rejected {rejected_no_crossing} (no boundary crossing)")
-    #     print(f"    [DEBUG] Rejected {rejected_invalid_measurement} (invalid measurement)")
-    #     print(f"    [DEBUG] Kept {len(widths)} valid measurements")
+    #     print(f"[DEBUG] Sampled {sampled_count} locations (every {step} pixels)")
+    #     print(f"[DEBUG] Rejected {rejected_no_crossing} (no boundary crossing)")
+    #     print(f"[DEBUG] Rejected {rejected_invalid_measurement} (invalid measurement)")
+    #     print(f"[DEBUG] Kept {len(widths)} valid measurements")
 
     return widths, contrasts, center_ys, debug_points
 
 # ----------------------------------------------------------
-# DIRECTION CONSISTENCY ANALYSIS
+# ELONGATION AND ORIENTATION CONSISTENCY ANALYSIS
 # ----------------------------------------------------------
-def estimate_shadow_direction(contour, min_points=20, min_elongation=2.0):
+def axial_circular_stats(angles_deg):
     '''
-    find the dominant orientation of a single shadow section
+    compute mean and std for axial angle data, where 0° and 180° are the same axis
 
-    we get an axis orientation only from this (no arrow direction):
-    - angles are in [0, 180) 
+    regular circular stats would treat 0° and 179° as nearly opposite, but for
+    shadow orientations they are nearly identical (same shadow axis, just measured
+    from the other end). the double-angle trick maps both to the same point on the
+    unit circle before averaging.
 
     function arguments:
-    - contour: opencv contour (n x 1 x 2 array of boundary points)
-    - min_points: minimum amount of points for a reliable analysis
-    - min_elongation: ratio of longest/shortest axis
+    - angles_deg: list of angles in degrees (any range, not just [0, 180))
 
-    return:
-    - orientation: axis orientation in degrees [0,180), or none if invalid
+    returns:
+    - (mean_deg, std_deg): mean axis direction in [0, 180) and circular std in degrees
+    '''
+    if len(angles_deg) == 0:
+        return 0.0, 0.0
+
+    # normalize to [0, 180) — the fundamental domain for axial data
+    angles = np.array(angles_deg, dtype=np.float64) % 180.0
+
+    # double each angle so that 0 and 180 degrees map to the same unit-circle point
+    doubled = np.deg2rad(2.0 * angles)
+
+    sin_mean = np.mean(np.sin(doubled))
+    cos_mean = np.mean(np.cos(doubled))
+
+    # circular mean (in the doubled space), then halve back to get the axis mean
+    mean_doubled_deg = np.degrees(np.arctan2(sin_mean, cos_mean))
+    mean_deg = (mean_doubled_deg / 2.0) % 180.0
+
+    # R is the length of the mean resultant vector — 1.0 = perfectly concentrated,
+    # 0.0 = uniformly spread; use it to get a circular std
+    R = np.sqrt(sin_mean ** 2 + cos_mean ** 2)
+    circ_std_rad = np.sqrt(-2.0 * np.log(max(R, 1e-9)))
+    # halve again: we doubled the angles, so the spread is also doubled
+    std_deg = np.degrees(circ_std_rad / 2.0)
+
+    return float(mean_deg), float(std_deg)
+
+
+def estimate_shadow_elongation(contour, min_points=5):
+    '''
+    estimate the elongation ratio of a shadow using its minimum area
+    bounding rectangle
+
+    idea:
+    - fit the tightest possible rectangle around the shadow contour
+    - elongation = major axis / minor axis
+    - all shadows in a real scene share the same sun elevation angle,
+      so their elongation ratios should be consistent across the image
+    - high variance in elongation = inconsistent light source = suspicious
+
+    function arguments:
+    - contour: shadow boundary from findContours
+    - min_points: minimum contour points needed to attempt the fit
+
+    returns:
+    - elongation ratio (float >= 1.0), or None if contour is too small
     '''
     points = contour.reshape(-1, 2).astype(np.float32)
     if points.shape[0] < min_points:
         return None
 
-    M = cv2.moments(contour)
-    if abs(M["m00"]) < 1e-6:
-        return None
-    cx = M["m10"] / M["m00"]
-    cy = M["m01"] / M["m00"]
-    center = np.array([cx, cy], dtype=np.float32)
+    # fit the minimum area bounding rectangle around the contour
+    # returns: center, (width, height), rotation angle
+    _, (w, h), _ = cv2.minAreaRect(contour)
 
-    vecs = points - center
-    dists = np.linalg.norm(vecs, axis=1)
-    if dists.size == 0:
-        return None
+    # make sure major >= minor so ratio is always >= 1.0
+    major = max(w, h)
+    minor = min(w, h)
 
-    max_r = float(np.max(dists))
-    median_r = float(np.median(dists))
-
-    # radial elongation: 1 => round; >2 => one strong "tail"
-    elongation = max_r / max(median_r, 1e-3)
-    if elongation < min_elongation:
+    # skip degenerate contours with no real size
+    if minor < 1.0:
         return None
 
-    idx_far = int(np.argmax(dists))
-    vx, vy = vecs[idx_far]
+    return float(major / minor)
 
-    # math coords (x right, y up) -> flip vy
-    angle_rad = np.arctan2(-vy, vx)
-    angle_deg = np.degrees(angle_rad) % 360.0
-
-    return float(angle_deg)
-
-def circular_stats(angles_deg):
+def collect_elongation_ratios(contours, min_shadow_area, min_perimeter, min_elongation=1.5):
     '''
-    calculate mean angle and circular std dev for shadow orientations
-
-    process:
-    - convert each angle to a unit vector
-        - 0 deg -> vector [1,0]
-        - 90 deg -> vector [0,1]
-        - 180 deg -> vector [-1,0]
-    - average all the vectors
-    - convert back to angle
+    collect elongation ratios from all shadow contours that pass
+    size and shape filters
 
     function arguments:
-    - angles_deg: list of angles in degrees [0, 360]
-
-    return:
-    - mean_angle_deg: avg direction (0 to 360)
-    - std_angle_deg: spread of directions (0 = all aligned, 180 = random)
-        - if std_angle_deg is large, that means very inconsistent
-    '''
-    if len(angles_deg) == 0:
-        return 0.0, 0.0
-    
-    # convert degrees to radians for calculating
-    angles_rad = np.deg2rad(angles_deg)
-
-    # convert each angle to a unit vector and average them
-    # circular mean
-    sin_sum = np.mean(np.sin(angles_rad))
-    cos_sum = np.mean(np.cos(angles_rad))
-
-    # convert average vector back to angle
-    mean_angle_rad = np.arctan2(sin_sum, cos_sum)
-    
-    # calculate mean resultant length (R)
-    # R = 1 means all vectors point exactly the same way
-    # R = 0 means vectors cancel out (random directions)
-    R = np.sqrt(sin_sum**2 + cos_sum**2)
-    
-    # circular standard deviation
-    # when R is close to 1 (aligned), std is small
-    # when R is close to 0 (scattered), std is large
-    std_angle_rad = np.sqrt(-2 * np.log(R + 1e-9))
-    
-    # convert back to degrees
-    mean_angle_deg = float(np.degrees(mean_angle_rad))
-    std_angle_deg = float(np.degrees(std_angle_rad))
-    
-    # normalize mean to [0,360]
-    if mean_angle_deg < 0:
-        mean_angle_deg += 360.0
-    
-    return mean_angle_deg, std_angle_deg
-
-def axial_circular_stats(angles_deg):
-    '''
-    circular mean and std dev for axial data (0° and 180° are equivalent).
-
-    angles_deg: list of orientations in degrees [0,180)
+    - contours: list of shadow contours from findContours
+    - min_shadow_area: skip contours smaller than this (pixels squared)
+    - min_perimeter: skip contours with perimeter shorter than this
+    - min_elongation: minimum ratio to include — shadows below this are
+      too compact to have a meaningful elongation axis (nearly square),
+      and including them would just add noise to the consistency check
 
     returns:
-    - mean_angle_deg: mean orientation in [0,180)
-    - std_angle_deg: circular std deviation in degrees
+    - ratios: list of elongation ratios, one per qualifying shadow
     '''
-    if len(angles_deg) == 0:
-        return 0.0, 0.0
+    ratios = []
 
-    angles_rad = np.deg2rad(angles_deg)
+    for contour in contours:
+        area = cv2.contourArea(contour)
+        perimeter = cv2.arcLength(contour, closed=True)
 
-    # double angles so 0° and 180° map to same direction
-    doubled = 2.0 * angles_rad
-    sin_sum = np.mean(np.sin(doubled))
-    cos_sum = np.mean(np.cos(doubled))
+        if area < min_shadow_area or perimeter < min_perimeter:
+            continue
 
-    mean_doubled = np.arctan2(sin_sum, cos_sum)
-    R = np.sqrt(sin_sum**2 + cos_sum**2)
+        # skip very irregular shapes like leaves or fragmented noise
+        # solidity = actual area / convex hull area
+        # low solidity means the shape is messy and the bounding box is unreliable
+        hull = cv2.convexHull(contour)
+        hull_area = cv2.contourArea(hull)
+        if hull_area < 1.0:
+            continue
+        if (area / hull_area) < 0.5:
+            continue
 
-    std_doubled = np.sqrt(-2.0 * np.log(R + 1e-9))
+        ratio = estimate_shadow_elongation(contour)
+        if ratio is None:
+            continue
 
-    mean_rad = mean_doubled / 2.0
-    std_rad = std_doubled / 2.0
+        # skip compact shadows since they contribute no meaningful elongation signal
+        if ratio < min_elongation:
+            continue
 
-    mean_deg = np.degrees(mean_rad)
-    std_deg = np.degrees(std_rad)
+        ratios.append(ratio)
 
-    if mean_deg < 0:
-        mean_deg += 180.0
+    return ratios
 
-    return float(mean_deg), float(std_deg)
 
-def enforce_global_direction(angle_deg, global_dir_deg):
+def collect_orientation_angles(contours, min_shadow_area, min_perimeter, min_elongation=1.5):
     '''
-    given a full direction angle_deg and a desired global direction,
-    flip by 180° if it's more than 90° away from the global direction
+    collect the long-axis orientation of each elongated shadow using minAreaRect
 
-    both inputs are in degrees
+    idea:
+    - every shadow in a real scene is cast by the same sun, so all long axes
+      should point in roughly the same direction
+    - a composited shadow from a different photo may have a different axis angle,
+      which shows up as high circular std across the image
+
+    this only uses shadows that are elongated enough (major/minor >= min_elongation)
+    so compact blobs do not pollute the axis estimate
+
+    function arguments:
+    - contours: list of shadow contours from findContours
+    - min_shadow_area: skip contours smaller than this (pixels squared)
+    - min_perimeter: skip contours shorter than this
+    - min_elongation: minimum major/minor ratio — below this the axis is unreliable
+
+    returns:
+    - angles: list of long-axis angles in [0, 180), one per qualifying shadow
     '''
-    a = angle_deg % 360.0
-    g = global_dir_deg % 360.0
+    angles = []
 
-    # smallest signed difference in [-180, 180]
-    diff = ((a - g + 180.0) % 360.0) - 180.0
+    for contour in contours:
+        area = cv2.contourArea(contour)
+        perimeter = cv2.arcLength(contour, closed=True)
 
-    if abs(diff) > 90.0:
-        a = (a + 180.0) % 360.0
+        if area < min_shadow_area or perimeter < min_perimeter:
+            continue
 
-    return a
+        hull = cv2.convexHull(contour)
+        hull_area = cv2.contourArea(hull)
+        if hull_area < 1.0:
+            continue
+        if (area / hull_area) < 0.5:
+            continue
+
+        points = contour.reshape(-1, 2).astype(np.float32)
+        if points.shape[0] < 5:
+            continue
+
+        _, (w, h), angle = cv2.minAreaRect(contour)
+
+        major = max(w, h)
+        minor = min(w, h)
+        if minor < 1.0:
+            continue
+
+        # skip shadows too compact to have a meaningful axis
+        if (major / minor) < min_elongation:
+            continue
+
+        # minAreaRect reports the angle of the 'width' side relative to horizontal
+        # if h > w the long axis is the height side, so rotate 90° to get the long axis
+        if h > w:
+            angle = angle + 90.0
+
+        # normalize to [0, 180) — the axial fundamental domain
+        angle = angle % 180.0
+
+        angles.append(float(angle))
+
+    return angles
+
 
 # ----------------------------------------------------------
 # FEATURE EXTRACTION
 # ----------------------------------------------------------
-def extract_features(widths, contrasts, directions):
+def extract_features(widths, contrasts, elongation_ratios, orientation_angles):
     '''
-    extract ML features from depth analysis based on penumbra hardness (width) and direction consistency
+    turn raw measurements into a small set of ML features
 
-    penumbra width: 
-    - mean/median: typical penumbra width (small = hard shadows; nearby light source) (large = soft shadows; distant/diffuse light)
-    - std dev: how consistent the shadows are (low std = all shadows have similar hardness) (high std = shadows vary a lot)
-
-    direction:
-    - num_shadows: how many elongated shadows are found (0-2 is not good enough for reliability; 3-5 is good; 6+ is best)
-    - mean_dir: average direction all shadows point toward (tells us general direction of where the light source is)
-    - std_dir: how much directions vary (low std [<15] = all aligned, most likely single light source) (high std [>30] = scattered, might be multiple)
+    goal:
+    - keep only a few features
+    - prefer stable features over too many detailed ones
+    - this is better for a small dataset
 
     function arguments:
-    - widths: list of penumbra width measurements
-    - contrasts: list of contrast measurements
-    - directions: list of shadow direction angles (in degrees)
-
-    return:
-    - dict of features ready for analysis or ML
+    - widths: list of penumbra edge width measurements
+    - contrasts: list of shadow contrast measurements
+    - elongation_ratios: list of per-shadow major/minor axis ratios
+    - orientation_angles: list of per-shadow long-axis angles in [0, 180)
     '''
     ml_features = {}
 
-    widths_arr = np.asarray(widths, dtype=np.float32)
-    contrasts_arr = np.asarray(contrasts, dtype=np.float32)
+    width_values = np.asarray(widths, dtype=np.float32)
+    contrast_values = np.asarray(contrasts, dtype=np.float32)
 
-    # penumbra width stats
-    if widths_arr.size > 0:
-        ml_features["edge_width_mean"] = float(np.mean(widths_arr))
-        ml_features["edge_width_median"] = float(np.median(widths_arr))
-        ml_features["edge_width_std"] = float(np.std(widths_arr))
-        ml_features["edge_width_min"] = float(np.min(widths_arr))
-        ml_features["edge_width_max"] = float(np.max(widths_arr))
-        ml_features["edge_width_range"] = float(np.max(widths_arr) - np.min(widths_arr))
-        ml_features["edge_width_p25"] = percentile(widths_arr, 25)
-        ml_features["edge_width_p75"] = percentile(widths_arr, 75)    
+    # -----------------------------
+    # penumbra width features
+    # -----------------------------
+    if width_values.size > 0:
+        width_mean = float(np.mean(width_values))
+        width_std = float(np.std(width_values))
+        width_median = float(np.median(width_values))
 
-        # Coefficient of variation (normalized std)
-        if ml_features["edge_width_mean"] > 1e-3:
-            ml_features["edge_width_cv"] = ml_features["edge_width_std"] / ml_features["edge_width_mean"]
+        ml_features["edge_width_mean"] = width_mean
+        ml_features["edge_width_std"] = width_std
+        ml_features["edge_width_median"] = width_median
+
+        # coefficient of variation = std / mean
+        # normalizes variability so images with wider penumbrae are not
+        # unfairly penalized for having larger absolute spread
+        if width_mean > 1e-3:
+            ml_features["edge_width_cv"] = width_std / width_mean
         else:
             ml_features["edge_width_cv"] = 0.0
     else:
         ml_features["edge_width_mean"] = 0.0
-        ml_features["edge_width_median"] = 0.0
         ml_features["edge_width_std"] = 0.0
-        ml_features["edge_width_min"] = 0.0
-        ml_features["edge_width_max"] = 0.0
-        ml_features["edge_width_range"] = 0.0
-        ml_features["edge_width_p25"] = 0.0
-        ml_features["edge_width_p75"] = 0.0
+        ml_features["edge_width_median"] = 0.0
         ml_features["edge_width_cv"] = 0.0
 
-    # contrast statistics
-    if contrasts_arr.size > 0:
-        ml_features["edge_contrast_mean"] = float(np.mean(contrasts_arr))
-        ml_features["edge_contrast_median"] = float(np.median(contrasts_arr))
-        ml_features["edge_contrast_std"] = float(np.std(contrasts_arr))
-        ml_features["edge_contrast_min"] = float(np.min(contrasts_arr))
-        ml_features["edge_contrast_max"] = float(np.max(contrasts_arr))
+    # -----------------------------
+    # shadow contrast feature
+    # -----------------------------
+    if contrast_values.size > 0:
+        ml_features["edge_contrast_mean"] = float(np.mean(contrast_values))
     else:
         ml_features["edge_contrast_mean"] = 0.0
-        ml_features["edge_contrast_median"] = 0.0
-        ml_features["edge_contrast_std"] = 0.0
-        ml_features["edge_contrast_min"] = 0.0
-        ml_features["edge_contrast_max"] = 0.0
 
-    # count of measurements
-    ml_features["num_measurements"] = int(widths_arr.size)
+    # how many valid penumbra measurements we got
+    ml_features["num_measurements"] = int(width_values.size)
 
-    # direction stats
-    if len(directions) > 0:
-        mean_dir, std_dir = axial_circular_stats(directions)
-        ml_features["num_dir_samples"] = int(len(directions))
-        ml_features["dir_mean_deg"] = mean_dir
-        ml_features["dir_std_deg"] = std_dir
+    # -----------------------------
+    # elongation consistency features
+    # -----------------------------
+    # elongation ratio = major axis / minor axis of each shadow's bounding box
+    # all shadows in a real scene share the same sun elevation angle, so their
+    # ratios should cluster together; high spread means inconsistent light sources
+    if len(elongation_ratios) >= 2:
+        ratio_arr = np.asarray(elongation_ratios, dtype=np.float32)
+        ratio_mean = float(np.mean(ratio_arr))
+        ratio_std  = float(np.std(ratio_arr))
+
+        ml_features["elongation_mean"] = ratio_mean
+        ml_features["elongation_std"] = ratio_std
+        # CV normalizes std by mean so images with very elongated shadows
+        # are not unfairly penalized for larger raw variance
+        ml_features["elongation_cv"] = ratio_std / ratio_mean if ratio_mean > 1e-3 else 0.0
+        ml_features["elongation_samples"] = int(ratio_arr.size)
     else:
-        ml_features["num_dir_samples"] = 0
-        ml_features["dir_mean_deg"] = 0.0
-        ml_features["dir_std_deg"] = 0.0
+        ml_features["elongation_mean"] = 0.0
+        ml_features["elongation_std"] = 0.0
+        ml_features["elongation_cv"] = 0.0
+        ml_features["elongation_samples"] = 0
+
+    # -----------------------------
+    # orientation consistency features
+    # -----------------------------
+    # long-axis angle of each shadow's bounding rectangle in [0, 180)
+    # all real shadows share the same sun azimuth, so their axes should cluster;
+    # a composited shadow from a different photo will have a different axis angle
+    if len(orientation_angles) >= 2:
+        _, angle_std = axial_circular_stats(orientation_angles)
+        ml_features["orientation_std_deg"]  = angle_std
+        ml_features["orientation_samples"]  = int(len(orientation_angles))
+    else:
+        ml_features["orientation_std_deg"]  = 0.0
+        ml_features["orientation_samples"]  = 0
 
     return ml_features
 
@@ -574,120 +661,118 @@ def extract_features(widths, contrasts, directions):
 # ----------------------------------------------------------
 def calculate_depth_tamper_score(ml_features):
     '''
-    tamper score based on both penumbra hardness and direction consistency
+    tamper score based on penumbra hardness and elongation consistency
 
     score components:
-    - penumbra variability (50% weight)
-        - measures if shadow hardness on shadow boundaries is consistent
-        - high std = possibly mixing different lighting conditions (i.e., copy-pasting a shadow from one photo to another)
-    - direction consistency (50% weight)
-        - measures if all shadows point the same way
-        - high std = possibly multiple/inconsistent light sources
+    - penumbra score (50% when shape features available, 100% otherwise):
+        - std dev (65%): how much edge softness varies across all shadow boundaries
+        - CV (35%): normalized variability, catches cases where std is inflated
+          by large absolute widths
+    - elongation score (25% when available):
+        - CV of per-shadow major/minor axis ratios; real scenes have consistent
+          elongation because the sun elevation angle is fixed
+    - orientation score (25% when available):
+        - circular std of per-shadow long-axis angles; real shadows share the same
+          sun azimuth so their axes cluster tightly; a composited shadow from a
+          different photo has a noticeably different axis
 
-    why this approach:
-    - real photos typically have consistent hardness and aligned directions
-    - fake photos may fail with at least one of these
+    weights fall back gracefully:
+    - both shape features available: penumbra 50% + elongation 25% + orientation 25%
+    - neither available (< 2 elongated shadows): penumbra 100%
+
+    real photos have consistent penumbra, elongation, and orientation from one light
+    source; composited photos mix shadows with different edge softness and axes
     '''
-    # penumbra hardness variability
+    # ---------------------------
+    # penumbra hardness score
+    # ---------------------------
     width_std = float(ml_features.get("edge_width_std", 0.0))
-    width_cv = float(ml_features.get("edge_width_cv", 0.0))
-    width_mean = float(ml_features.get("edge_width_mean", 1.0))
-    width_median = float(ml_features.get("edge_width_median", 1.0))
-    width_max = float(ml_features.get("edge_width_max", 1.0))
-    
-    # standard deviation for hardness variability
+    width_cv  = float(ml_features.get("edge_width_cv",  0.0))
+
+    # std score: 0 at std<=5px, 1 at std>=10px
     if width_std <= 5.0:
-        score_std = 0.0  # normal variation
+        score_std = 0.0
     elif width_std >= 10.0:
-        score_std = 1.0  # extreme variation
+        score_std = 1.0
     else:
-        # linear interpolation between 5 and 10
         score_std = (width_std - 5.0) / 5.0
-    
-    # coefficient of variation for hardnessvariability
+
+    # CV score: 0 at cv<=0.8, 1 at cv>=1.5
     if width_cv <= 0.8:
-        score_cv = 0.0  # normal
+        score_cv = 0.0
     elif width_cv >= 1.5:
-        score_cv = 1.0  # extreme
+        score_cv = 1.0
     else:
-        # linear interpolation
         score_cv = (width_cv - 0.8) / 0.7
-    
-    # range check (max vs median ratio)
-    # real: max usually < 3x median
-    ratio = width_max / max(width_median, 0.1)
-    if ratio <= 3.0:
-        score_range = 0.0
-    elif ratio >= 6.0:
-        score_range = 1.0
+
+    penumbra_score = 0.65 * score_std + 0.35 * score_cv
+
+    # ---------------------------
+    # elongation consistency score
+    # ---------------------------
+    elongation_cv = float(ml_features.get("elongation_cv", 0.0))
+    elongation_samples = int(ml_features.get("elongation_samples", 0))
+
+    if elongation_samples < 2:
+        # not enough elongated shadows — fall back to penumbra only
+        return max(0.0, min(1.0, penumbra_score))
+
+    # CV (coefficient of variation) = std / mean of the elongation ratios across all shadows
+    # it measures how spread out the ratios are relative to their average:
+    #   CV <= 0.3 → ratios are tightly clustered → consistent elongation → score 0.0 (not suspicious)
+    #   CV >= 0.6 → ratios are widely spread → inconsistent elongation → score 1.0 (suspicious)
+    #   between 0.3 and 0.6 → linearly interpolated
+    # variation is expected (lamp post vs fire hydrant cast different length shadows),
+    # but extreme spread suggests shadows from different sun elevations were mixed together
+    if elongation_cv <= 0.3:
+        elongation_score = 0.0
+    elif elongation_cv >= 0.6:
+        elongation_score = 1.0
     else:
-        score_range = (ratio - 3.0) / 3.0
+        elongation_score = (elongation_cv - 0.3) / 0.3
 
-    # combine components
-    penumbra_score = (
-        0.50 * score_std +      # primary indicator
-        0.30 * score_cv +       # scale-independent check
-        0.20 * score_range      # extreme outlier check
-    )
-    
-    # direction consistency
-    dir_std = float(ml_features.get("dir_std_deg", 0.0))
-    num_dir = int(ml_features.get("num_dir_samples", 0))
+    # ---------------------------
+    # orientation consistency score
+    # ---------------------------
+    orientation_std = float(ml_features.get("orientation_std_deg", 0.0))
+    orientation_samples = int(ml_features.get("orientation_samples",   0))
 
-    # check if there are enough direction samples
-    if num_dir < 2:
-        # not enough elongated shadows to analyze direction
-        # fall back to penumbra only score
-        direction_score = 0.0
-        direction_weight = 0.0
-        penumbra_weight = 1.0
+    if orientation_samples < 2:
+        tamper_score = 0.60 * penumbra_score + 0.40 * elongation_score
     else:
-        # use direction data
-        direction_weight = 0.5
-        penumbra_weight = 0.5
-
-        # direction std dev
-        # real: std dev typically < 15 deg (all shadows aligned)
-        # fake: std dev > 30 deg (possibly inconsistent light sources)
-        if dir_std <= 15.0:
-            direction_score = 0.0
-        elif dir_std >= 40.0:
-            direction_score = 1.0
+        # circular std of long-axis angles measures how much the shadow axes vary in direction:
+        #   std <= 15° → axes point roughly the same way → same sun azimuth → score 0.0 (not suspicious)
+        #   std >= 30° → axes point in clearly different directions → score 1.0 (suspicious)
+        #   between 15° and 30° → linearly interpolated
+        # a composited shadow from a different photo will have a noticeably different axis angle
+        if orientation_std <= 15.0:
+            orientation_score = 0.0
+        elif orientation_std >= 30.0:
+            orientation_score = 1.0
         else:
-            # linear interpolation (if there are unknown values and you need to estimate) between 15 and 40 deg
-            direction_score = (dir_std - 15.0) / 25.0
+            orientation_score = (orientation_std - 15.0) / 15.0
 
-        # if very inconsistent, add penalty
-        if dir_std > 60.0:
-            direction_score = 1.0
-    
-    # combined score for penumbra analysis and direction analysis
-    tamper_score = (
-        penumbra_weight * penumbra_score + 
-        direction_weight * direction_score
-    )
+        tamper_score = (0.50 * penumbra_score
+                        + 0.25 * elongation_score
+                        + 0.25 * orientation_score)
 
     return max(0.0, min(1.0, tamper_score))    
 
 # ----------------------------------------------------------
 # VISUALIZATION
 # ----------------------------------------------------------
-def visualize_depth_analysis(img, mask, debug_points, widths, contrasts, direction_debug_info, all_directions, max_points_vis=2000):
+def visualize_depth_analysis(img, mask, debug_points, widths, contrasts,
+                             shadow_contours=None, min_shadow_area=300, min_perimeter=30,
+                             max_points_vis=2000):
     '''
     show what was measured so far:
     - shadow mask overlay
-    - sample points (where did we measure)
+    - sample points (where penumbra was measured, shown as green dots)
+    - elongation bounding boxes (cyan rectangles) and long-axis lines (magenta)
     - histogram of edge widths (distribution of penumbra hardness)
     - histogram of contrasts (distribution of shadow darkness)
-    - shadow directions with arrows
-        - green arrows=direction of each elongated shadow
-        - arrow length proportional to shadow size
     '''
     mask_u8 = mask.astype(np.uint8)
-    
-    # create boundary outline for visualization
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-    mask_outline = cv2.morphologyEx(mask_u8, cv2.MORPH_GRADIENT, kernel)
 
     # shadow overlay (red)
     mask_overlay = img.copy()
@@ -704,65 +789,77 @@ def visualize_depth_analysis(img, mask, debug_points, widths, contrasts, directi
     cv2.resizeWindow("Shadow Overlay", 800, 600)
     cv2.imshow("Shadow Overlay", mask_overlay)
 
-    # show where we sampled (green dots)
+    # show where penumbra was sampled (green dots)
     pts_overlay = mask_overlay.copy()
     for i, (x, y) in enumerate(debug_points[:max_points_vis]):
         cv2.circle(pts_overlay, (x, y), 3, (0, 255, 0), -1)
-    
-    # direction arrows
-    arrows_overlay = mask_overlay.copy()
-    if len(direction_debug_info) > 0 and len(all_directions) > 0:
-        # use axial stats to get the main line of shadows
-        '''
-        NOTICE: some images have arrow visuals that seem "flipped" (180 deg off) since drawing the arrows only chooses one 
-        global sign along that axis (ex: if the direction is 210 deg, the axis is the same as 30 deg)
-        - both are valid mathematically; the alg has no other info to know which matches the sun
-        - the 180 deg ambiguity doesn't change the analysis (only affects visuals)
-        '''
-        axes = [(d % 180.0) for d in all_directions]
-        global_axis_deg, axis_std = axial_circular_stats(axes)
-
-        # we align arrow directions to this axis
-        # print(f"[VIS] Global shadow axis: {global_axis_deg:.1f}, std={axis_std:.1f}")
-
-        for info in direction_debug_info:
-            cx, cy = info['center']
-            local_dir = info['angle']  # 0–360°
-            area = info['area']
-
-            # flip local_dir by 180° if it's >90° away from axis
-            angle_deg = enforce_global_direction(local_dir, global_axis_deg)
-
-            # arrow length
-            arrow_len = min(int(np.sqrt(area) / 3), 80)
-            arrow_len = max(arrow_len, 30)
-
-            angle_rad = np.deg2rad(angle_deg)
-            dx = int(arrow_len * np.cos(angle_rad))
-            dy = int(-arrow_len * np.sin(angle_rad))  # flip y for image coords
-
-            end_x = cx + dx
-            end_y = cy + dy
-
-            cv2.arrowedLine(
-                arrows_overlay, (cx, cy), (end_x, end_y),
-                (255, 0, 0), 2, tipLength=0.3
-            )
-            cv2.circle(arrows_overlay, (cx, cy), 5, (0, 255, 255), -1)
-
-            label = f"{int(angle_deg)}"
-            cv2.putText(
-                arrows_overlay, label, (cx + 10, cy - 10),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 2, cv2.LINE_AA
-            )
 
     cv2.namedWindow("Penumbra Sample Points (green dots)", cv2.WINDOW_NORMAL)
     cv2.resizeWindow("Penumbra Sample Points (green dots)", 800, 600)
     cv2.imshow("Penumbra Sample Points (green dots)", pts_overlay)
 
-    cv2.namedWindow("Directions (blue arrows)", cv2.WINDOW_NORMAL)
-    cv2.resizeWindow("Directions (blue arrows)", 800, 600)
-    cv2.imshow("Directions (blue arrows)", arrows_overlay)
+    # elongation visualization: bounding rectangles + long-axis lines
+    #
+    # how to interpret this window:
+    # cyan box — the tightest rectangle fitted around each qualifying shadow;
+    #   its proportions show the elongation ratio (long/short side)
+    # magenta line — the long-axis direction of that rectangle; this is the angle
+    #   used for orientation consistency
+    #
+    # what to look for:
+    # REAL image   — magenta lines should point in roughly the same direction
+    #   across all shadows (same sun, same axis for every shadow)
+    # TAMPERED image — one or more magenta lines point in a noticeably different
+    #   direction, indicating a shadow from a different light source
+    #   was composited in; the cyan box will also look disproportionate
+    #   if the shadow was stretched differently than the others
+    if shadow_contours is not None:
+        elong_overlay = img.copy()
+
+        for contour in shadow_contours:
+            area = cv2.contourArea(contour)
+            perimeter = cv2.arcLength(contour, closed=True)
+            if area < min_shadow_area or perimeter < min_perimeter:
+                continue
+
+            hull = cv2.convexHull(contour)
+            hull_area = cv2.contourArea(hull)
+            if hull_area < 1.0 or (area / hull_area) < 0.5:
+                continue
+
+            points = contour.reshape(-1, 2).astype(np.float32)
+            if points.shape[0] < 5:
+                continue
+
+            rect = cv2.minAreaRect(contour)
+            (cx, cy), (w, h), angle = rect
+
+            major = max(w, h)
+            minor = min(w, h)
+            if minor < 1.0 or (major / minor) < 1.5:
+                continue
+
+            # draw the rotated bounding rectangle in cyan
+            box = np.int32(cv2.boxPoints(rect))
+            cv2.polylines(elong_overlay, [box], isClosed=True, color=(255, 255, 0), thickness=2)
+
+            # compute the long-axis angle (same normalization as collect_orientation_angles)
+            if h > w:
+                angle = angle + 90.0
+            angle = angle % 180.0
+            theta = np.deg2rad(angle)
+
+            # draw a magenta line through the center along the long axis
+            half_len = int(major / 2)
+            dx = int(np.cos(theta) * half_len)
+            dy = int(np.sin(theta) * half_len)
+            pt1 = (int(cx) - dx, int(cy) - dy)
+            pt2 = (int(cx) + dx, int(cy) + dy)
+            cv2.line(elong_overlay, pt1, pt2, color=(255, 0, 255), thickness=2)
+
+        cv2.namedWindow("Elongation: boxes (cyan) + axes (magenta)", cv2.WINDOW_NORMAL)
+        cv2.resizeWindow("Elongation: boxes (cyan) + axes (magenta)", 800, 600)
+        cv2.imshow("Elongation: boxes (cyan) + axes (magenta)", elong_overlay)
 
     cv2.waitKey(1)
 
@@ -816,14 +913,21 @@ def analyze_depth(image_input, visualize=True, sample_step=4, compute_tamper_sco
     mask = final_shadow_mask(img)
     assert mask.shape[:2] == img.shape[:2], "mask must align with original image"
 
+    # clean the mask to reduce noise before finding contours:
+    # open removes tiny specks, close connects nearby shadow pixels
+    cleaned_mask = mask.astype(np.uint8).copy()
+    small_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    cleaned_mask = cv2.morphologyEx(cleaned_mask, cv2.MORPH_OPEN, small_kernel)
+    medium_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
+    cleaned_mask = cv2.morphologyEx(cleaned_mask, cv2.MORPH_CLOSE, medium_kernel)
+
     # convert to grayscale
     _, _, I0 = bgr_to_hsi_linear(img)
     gray_img = np.uint8(np.clip(I0 * 255, 0, 255))
 
-    # find shadow boundaries
+    # find shadow boundaries from cleaned mask
     mask_u8 = mask.astype(np.uint8)
-    contours, _ = cv2.findContours(mask_u8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    # print(f"Found {len(contours)} shadow regions")
+    shadow_contours, _ = cv2.findContours(cleaned_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
     # sample profiles and measure penumbra
     all_widths = []
@@ -831,135 +935,40 @@ def analyze_depth(image_input, visualize=True, sample_step=4, compute_tamper_sco
     all_center_ys = []
     debug_points_all = []
 
-    # use configurable filtering parameters
-    MIN_SHADOW_AREA_PENUMBRA = min_shadow_area
-    MIN_PERIMETER_PENUMBRA = min_perimeter
-
-    # more permissive parameters for direction-only regions
-    # MIN_SHADOW_AREA_DIR = max(50, 0.2 * min_shadow_area)
-    # MIN_PERIMETER_DIR   = max(20, 0.5 * min_perimeter)
-    MIN_SHADOW_AREA_DIR = min_shadow_area
-    MIN_PERIMETER_DIR   = min_perimeter
-
-    skipped_small = 0
-    measured_regions = 0
-
-    for i, contour in enumerate(contours):
-        # calculate area and perimeter
+    for contour in shadow_contours:
         area = cv2.contourArea(contour)
         perimeter = cv2.arcLength(contour, closed=True)
 
-        # skip small regions that may likely be noise
-        if area < MIN_SHADOW_AREA_PENUMBRA or perimeter < MIN_PERIMETER_PENUMBRA:
-            skipped_small += 1
-            continue 
+        # skip small regions that are likely noise
+        if area < min_shadow_area or perimeter < min_perimeter:
+            continue
 
         widths, contrasts, center_ys, debug_points = sample_profiles_along_contour(
             contour,
             gray_img=gray_img,
             mask_bin=mask_u8,
-            step=sample_step,          # sample every 4 pixels along boundary
-            half_len=10,     # extend +-10 pixels from boundary
-            num_samples=21   # 21 intensity samples per profile
+            step=sample_step,
+            half_len=10,
+            num_samples=21
         )
         all_widths.extend(widths)
         all_contrasts.extend(contrasts)
         all_center_ys.extend(center_ys)
         debug_points_all.extend(debug_points)
-        
-        if widths:
-            measured_regions += 1
-            # print(f"  Region {measured_regions}: area={area:.0f}px-squared, {len(widths)} measurements")
-    
-    # if skipped_small > 0:
-    #     print(f"    (Skipped {skipped_small} small regions as noise)")
 
-    # collect shadow directions for direction consistency check
-    all_directions = []
-    direction_debug_info = []   # for visualization
+    # collect elongation ratios and orientation angles from the same contours
+    elongation_ratios = collect_elongation_ratios(
+        shadow_contours,
+        min_shadow_area=min_shadow_area,
+        min_perimeter=min_perimeter
+    )
+    orientation_angles = collect_orientation_angles(
+        shadow_contours,
+        min_shadow_area=min_shadow_area,
+        min_perimeter=min_perimeter
+    )
 
-    # loop through the same contours used for penumbra
-    for i, contour in enumerate(contours):
-        # use same filtering criteria as penumbra
-        area = cv2.contourArea(contour)
-        perimeter = cv2.arcLength(contour, closed=True)
-
-        # direction loop
-        if area < MIN_SHADOW_AREA_DIR or perimeter < MIN_PERIMETER_DIR:
-            # skip small regions that may be noise
-            continue
-
-        # estimate direction of this shadow (relax min_points and min_elongation to catch poles)
-        angle_deg = estimate_shadow_direction(
-            contour, 
-            min_points=20,  # need at least 20 boundary points
-            min_elongation=2.0  # only measure elongated shadows
-        )
-
-        if angle_deg is not None:
-            # valid direction found
-            all_directions.append(angle_deg)
-
-            # store debug info for visualization
-            M = cv2.moments(contour)
-            if abs(M["m00"]) > 1e-6:
-                cx = int(M["m10"] / M["m00"])
-                cy = int(M["m01"] / M["m00"])
-                direction_debug_info.append({
-                    'center': (cx, cy),
-                    'angle': angle_deg,
-                    'area': area
-                })            
-
-    # CONSOLE print direction summary
-    if len(all_directions) > 0:
-        # axes (0–180) for consistency
-        axes = [(d % 180.0) for d in all_directions]
-        mean_axis, std_axis = axial_circular_stats(axes)
-
-        # align all directions to that axis for a signed mean (optional, for info)
-        aligned_dirs = [enforce_global_direction(d, mean_axis) for d in all_directions]
-        mean_dir, dir_spread = circular_stats(aligned_dirs)
-
-        # print(f"  Found {len(all_directions)} elongated shadows")
-        # print(f"  Mean axis: {mean_axis:.1f} deg (0≡180), axis std: {std_axis:.1f} deg")
-        # print(f"  Mean direction (aligned): {mean_dir:.1f} deg, spread: {dir_spread:.1f} deg")
-        
-    #     if std_axis < 15:
-    #         print(f"  → Very consistent (aligned shadows)")
-    #     elif std_axis < 30:
-    #         print(f"  → Moderately consistent")
-    #     else:
-    #         print(f"  → High variation (possibly different light sources)")
-    # else:
-    #     print(f"  No elongated shadows found (all too circular)")
-    #     print(f"  Direction consistency cannot be assessed")
-
-    # calculate stats for penumbra width
-    # print(f"\n{'='*60}")
-    # print(f"PENUMBRA HARDNESS ANALYSIS")
-    # print(f"{'='*60}")
-    # print(f"Total measurements: {len(all_widths)}")
-    
-    # if len(all_widths) > 0:
-    #     print(f"\nEdge Width (Penumbra Hardness):")
-    #     print(f"  Mean:   {np.mean(all_widths):.2f} pixels")
-    #     print(f"  Median: {np.median(all_widths):.2f} pixels")
-    #     print(f"  Std:    {np.std(all_widths):.2f} pixels")
-    #     print(f"  Range:  {np.min(all_widths):.2f} - {np.max(all_widths):.2f} pixels")
-        
-    #     print(f"\nShadow Contrast:")
-    #     print(f"  Mean:   {np.mean(all_contrasts):.1f} intensity units")
-    #     print(f"  Median: {np.median(all_contrasts):.1f} intensity units")
-    #     print(f"  Range:  {np.min(all_contrasts):.1f} - {np.max(all_contrasts):.1f}")
-    # else:
-    #     print("\nWARNING: No valid penumbra measurements found")
-    #     print("Possibilities:")
-    #     print("  - Shadow edges are too small/fragmented")
-    #     print("  - Shadows are too hard (width < min threshold)")
-    #     print("  - Not enough contrast at boundaries")
-
-    features = extract_features(all_widths, all_contrasts, all_directions)
+    features = extract_features(all_widths, all_contrasts, elongation_ratios, orientation_angles)
 
     # calculate tamper score
     tamper_score = None
@@ -977,8 +986,9 @@ def analyze_depth(image_input, visualize=True, sample_step=4, compute_tamper_sco
             debug_points_all,
             all_widths,
             all_contrasts,
-            direction_debug_info,
-            all_directions,
+            shadow_contours=shadow_contours,
+            min_shadow_area=min_shadow_area,
+            min_perimeter=min_perimeter,
             max_points_vis=2000
         )
 
@@ -1002,20 +1012,13 @@ def analyze_depth(image_input, visualize=True, sample_step=4, compute_tamper_sco
 # ----------------------------------------------------------
 if __name__ == "__main__":
     # testing visuals before analyzing
-    test_path = "data/images/40.jpg"
+    test_path = "data/images/2-edited.jpg"
 
     img = cv2.imread(test_path)
     if img is None:
         raise FileNotFoundError(f"Could not read image: {test_path}")
     
-    mask = final_shadow_mask(img)
-
-    # visualize_shadow_filtering(
-    #     img, 
-    #     mask,
-    #     min_shadow_area=300,  # adjust these based on visualization
-    #     min_perimeter=30
-    # )       
+    mask = final_shadow_mask(img)     
 
     result = analyze_depth(
         test_path,
@@ -1027,8 +1030,3 @@ if __name__ == "__main__":
     )
 
     print("\nExtracted features:", result["features"])
-    # print("\n" + "="*60)
-    # print("EXTRACTED DEPTH FEATURES")
-    # print("="*60)
-    # for key, value in result["features"].items():
-    #     print(f"{key:30s}: {value}")
