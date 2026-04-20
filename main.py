@@ -14,19 +14,13 @@ from depth import analyze_depth
 app = Flask(__name__)
 
 # uploaded files go in uploads
-UPLOAD_DIR = os.path.join("static", "uploads")
+# UPLOAD_DIR = os.path.join("static", "uploads")
 
 # load ML model (module models and stacked model)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MODELS_DIR = os.path.join(BASE_DIR, "models")
 
-os.makedirs(UPLOAD_DIR, exist_ok=True)
-
-#old ML pipeline
-# ml_bundle = joblib.load(ML_MODEL_PATH)
-# ml_model = ml_bundle["model"]
-# ml_feature_cols = ml_bundle["feature_cols"]
-# print("Loaded ML feature columns:", ml_feature_cols)
+# os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # load saved stacked pipeline models
 texture_bundle = joblib.load(os.path.join(MODELS_DIR, "texture_model.joblib"))
@@ -44,9 +38,9 @@ lighting_feature_cols = lighting_bundle["feature_cols"]
 depth_feature_cols = depth_bundle["feature_cols"]
 stack_feature_cols = stack_bundle["feature_cols"]
 
-texture_probability_flip = texture_bundle.get("probability_flip", False)
-lighting_probability_flip = lighting_bundle.get("probability_flip", False)
-depth_probability_flip = depth_bundle.get("probability_flip", False)
+# texture_probability_flip = texture_bundle.get("probability_flip", False)
+# lighting_probability_flip = lighting_bundle.get("probability_flip", False)
+# depth_probability_flip = depth_bundle.get("probability_flip", False)
 
 print("Loaded texture features:", texture_feature_cols)
 print("Loaded lighting features:", lighting_feature_cols)
@@ -96,7 +90,7 @@ def build_feature_df(features_dict, feature_cols):
 def get_class1_probability(model, feature_df):
     # return probability for class 1 (tampered). assume labels are [0,1]
     proba = model.predict_proba(feature_df)[0]
-    classes = getattr(model, "classes_", None)
+    classes = model.named_steps["model"].classes_
 
     if classes is not None:
         classes_list = list(classes)
@@ -238,13 +232,13 @@ def process_image():
             lighting_prob = get_class1_probability(lighting_model, lighting_df_ml)
             depth_prob = get_class1_probability(depth_model, depth_df_ml)
 
-            # apply saved flipped setting so higher probability aligns with "more likely tampered"
-            if texture_probability_flip:
-                texture_prob = 1.0 - texture_prob
-            if lighting_probability_flip:
-                lighting_prob = 1.0 - lighting_prob
-            if depth_probability_flip:
-                depth_prob = 1.0 - depth_prob
+            # # apply saved flipped setting so higher probability aligns with "more likely tampered"
+            # if texture_probability_flip:
+            #     texture_prob = 1.0 - texture_prob
+            # if lighting_probability_flip:
+            #     lighting_prob = 1.0 - lighting_prob
+            # if depth_probability_flip:
+            #     depth_prob = 1.0 - depth_prob
             
             ml_module_probabilities["texture"] = float(texture_prob)
             ml_module_probabilities["lighting"] = float(lighting_prob)
