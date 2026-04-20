@@ -9,7 +9,7 @@ from collections import Counter
 from sklearn.model_selection import StratifiedGroupKFold
 from sklearn.pipeline import Pipeline
 from sklearn.impute import SimpleImputer
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import RobustScaler
 from sklearn.metrics import accuracy_score
 
 from sklearn.linear_model import LogisticRegression
@@ -108,16 +108,14 @@ def make_model(model_type):
     ]
 
     if model_type == "logreg":
-        # logistic regression benefits from scaling
         return Pipeline(base_steps + [
-            ("scaler", StandardScaler()),
-            ("model", LogisticRegression(max_iter=5000, random_state=42))
+            ("scaler", RobustScaler()),
+            ("model", LogisticRegression(solver="liblinear", max_iter=5000, random_state=42))
         ])
 
     elif model_type == "svm":
-        # SVM also benefits from scaling
         return Pipeline(base_steps + [
-            ("scaler", StandardScaler()),
+            ("scaler", RobustScaler()),
             ("model", SVC(kernel="rbf", probability=True, random_state=42))
         ])
 
