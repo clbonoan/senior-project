@@ -27,6 +27,13 @@ STACKING_CSV = DATA_DIR / "stacking_features_oof.csv"
 # load stacking dataset
 stack_df = pd.read_csv(STACKING_CSV)
 
+# merge edit_type from labels.csv so we can break down results by edit category
+# (compositing, removal, mixed) after evaluation — edit_type is metadata, not a
+# feature, so it doesn't need to flow through build_feature_csvs or train_module_models
+LABELS_CSV = DATA_DIR / "labels.csv"
+labels_meta = pd.read_csv(LABELS_CSV)[["filename", "edit_type"]].rename(columns={"filename": "image_id"})
+stack_df = stack_df.merge(labels_meta, on="image_id", how="left")
+
 print("\nColumns found:")
 print(stack_df.columns.tolist())
 
@@ -45,6 +52,7 @@ def base_image_group(image_id):
 
 # PREPARE X AND y
 # X = the 3 learned probabilities from stage 1
+# edit_type is excluded here — it's only used for post-evaluation breakdown, not as a model input
 X = stack_df[["texture_prob", "lighting_prob", "depth_prob"]].copy()
 # y = true labels
 y = stack_df["label"].copy()
@@ -102,6 +110,22 @@ acc = accuracy_score(y, y_pred)
 
 print("\nOverall OOF Results")
 print(f"Accuracy: {acc:.3f}")
+
+# PER-CATEGORY DETECTION RATE
+# shadow features can detect compositing edits (inconsistent shadow physics) but have
+# no signal for removal edits (nothing left in the shadow mask to analyze) — breaking
+# results down by edit type lets us confirm this empirically and report it in the paper
+print("\nDetection Rate by Edit Type (tampered images only):")
+stack_df["pred_label"] = y_pred
+edited_mask = stack_df["label"] == 1
+for edit_type in ["compositing", "removal", "mixed"]:
+    subset = stack_df[edited_mask & (stack_df["edit_type"] == edit_type)]
+    if len(subset) == 0:
+        print(f"  {edit_type}: no samples")
+        continue
+    detected = (subset["pred_label"] == 1).sum()
+    total = len(subset)
+    print(f"  {edit_type}: {detected}/{total} detected ({detected / total * 100:.1f}%)")
 
 # CONFUSION MATRIX
 labels = [0, 1]
@@ -165,10 +189,13 @@ print("\nSaved plot:")
 print(plot_path)
 
 # SAVE OOF PREDICTIONS
+# edit_type is included so per-category analysis can be re-run on the saved CSV
+# without needing to re-merge labels.csv again
 results_df = X.copy()
 results_df["true_label"] = y.values
 results_df["pred_label"] = y_pred
 results_df["pred_prob"] = y_prob
+results_df["edit_type"] = stack_df["edit_type"].values
 
 results_out = DATA_DIR / f"stacking_results_{MODEL_TYPE}.csv"
 results_df.to_csv(results_out, index=False)
