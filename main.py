@@ -1,8 +1,9 @@
 from flask import Flask, request, jsonify, render_template
 
 import os
+import base64
 import cv2 as cv
-import numpy as np 
+import numpy as np
 import joblib
 import pandas as pd
 
@@ -66,6 +67,117 @@ def repo():
     return render_template("repo.html")
 
 # helpers
+def _resize_for_web(img, max_w=900):
+    h, w = img.shape[:2]
+    if w > max_w:
+        scale = max_w / w
+        img = cv.resize(img, (max_w, int(h * scale)), interpolation=cv.INTER_AREA)
+    return img
+
+def _encode_b64(bgr):
+    _, buf = cv.imencode(".png", bgr)
+    return base64.b64encode(buf).decode()
+
+def make_texture_vizzes(img, result):
+    lbp = result.get("lbp")
+    mask = result.get("mask")
+    if lbp is None or mask is None:
+        return None, None
+
+    # viz 1: shadow regions overlaid on original (shows what was detected)
+    overlay = img.copy()
+    shadow_px = mask > 127
+    overlay[shadow_px] = (
+        overlay[shadow_px].astype(np.float32) * 0.5
+        + np.array([0, 0, 200], dtype=np.float32) * 0.5
+    ).astype(np.uint8)
+    contours, _ = cv.findContours(mask, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+    cv.drawContours(overlay, contours, -1, (0, 0, 255), 2)
+    viz1 = _encode_b64(_resize_for_web(overlay))
+
+    # viz 2: LBP texture map with shadow boundary (shows the texture pattern evidence)
+    lbp_color = cv.applyColorMap(lbp, cv.COLORMAP_BONE)
+    k = cv.getStructuringElement(cv.MORPH_ELLIPSE, (3, 3))
+    outline = cv.morphologyEx(mask, cv.MORPH_GRADIENT, k)
+    lbp_color[outline > 0] = (0, 0, 255)
+    viz2 = _encode_b64(_resize_for_web(lbp_color))
+
+    return viz1, viz2
+
+def make_lighting_vizzes(img, result):
+    mask = result.get("mask")
+    shadow_log_ratios = result.get("shadow_log_ratios", {})
+    shadow_labels = result.get("shadow_labels")
+    if mask is None or shadow_labels is None:
+        return None, None
+
+    num_labels = int(shadow_labels.max()) + 1
+
+    # viz 1: each shadow component a distinct color (shows how many shadows and where)
+    overlay1 = img.copy()
+    for i in range(1, num_labels):
+        hue = int((i * 137) % 180)
+        color_bgr = cv.cvtColor(
+            np.array([[[hue, 200, 220]]], dtype=np.uint8), cv.COLOR_HSV2BGR
+        )[0, 0].tolist()
+        pixels = shadow_labels == i
+        overlay1[pixels] = (
+            overlay1[pixels].astype(np.float32) * 0.4
+            + np.array(color_bgr, dtype=np.float32) * 0.6
+        ).astype(np.uint8)
+    viz1 = _encode_b64(_resize_for_web(overlay1))
+
+    # viz 2: brightness ratio heatmap (same-colored = consistent light source = real)
+    viz2 = None
+    if shadow_log_ratios:
+        ratios = list(shadow_log_ratios.values())
+        r_min, r_max = min(ratios), max(ratios)
+        r_range = r_max - r_min if r_max != r_min else 1.0
+        overlay2 = img.copy()
+        for label_idx, ratio in shadow_log_ratios.items():
+            norm = int(((ratio - r_min) / r_range) * 255)
+            color_bgr = cv.applyColorMap(
+                np.array([[[norm]]], dtype=np.uint8), cv.COLORMAP_VIRIDIS
+            )[0, 0].tolist()
+            pixels = shadow_labels == label_idx
+            overlay2[pixels] = (
+                overlay2[pixels].astype(np.float32) * 0.3
+                + np.array(color_bgr, dtype=np.float32) * 0.7
+            ).astype(np.uint8)
+        viz2 = _encode_b64(_resize_for_web(overlay2))
+
+    return viz1, viz2
+
+def make_depth_vizzes(img, result):
+    mask = result.get("mask")
+    gray = result.get("gray_img")
+    if mask is None:
+        return None, None
+
+    contours, _ = cv.findContours(mask, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+
+    # viz 1: shadow contours on grayscale (shows shadow edges analyzed for penumbra)
+    base = cv.cvtColor(gray, cv.COLOR_GRAY2BGR) if gray is not None else img.copy()
+    cv.drawContours(base, contours, -1, (0, 220, 0), 2)
+    viz1 = _encode_b64(_resize_for_web(base))
+
+    # viz 2: orientation lines on original (all lines same direction = real)
+    overlay2 = img.copy()
+    for cnt in contours:
+        if cv.contourArea(cnt) < 300:
+            continue
+        rect = cv.minAreaRect(cnt)
+        center, (w_r, h_r), angle = rect
+        cx, cy = int(center[0]), int(center[1])
+        angle_rad = np.radians(angle if w_r >= h_r else angle + 90)
+        length = int(max(w_r, h_r) * 0.5)
+        dx, dy = int(length * np.cos(angle_rad)), int(length * np.sin(angle_rad))
+        cv.line(overlay2, (cx - dx, cy - dy), (cx + dx, cy + dy), (0, 165, 255), 2)
+        cv.circle(overlay2, (cx, cy), 4, (0, 165, 255), -1)
+    viz2 = _encode_b64(_resize_for_web(overlay2))
+
+    return viz1, viz2
+
 def extract_tamper_score(result) -> float | None:
     if isinstance(result, dict) and "tamper_score" in result:
         try:
@@ -128,7 +240,10 @@ def process_image():
     '''
     scores = {}
 
-    # make sure these exist even if analysis fails
+    # initialize so viz functions receive empty dicts on failure
+    texture_result = {}
+    lighting_result = {}
+    depth_result = {}
     texture_features = {}
     lighting_features = {}
     depth_features = {}
@@ -136,7 +251,6 @@ def process_image():
     # texture
     try:
         texture_result = analyze_texture(img, visualize=False, compute_tamper_score=True)
-        #print("Result from texture:", texture_result)      # debug
         scores["texture"] = extract_tamper_score(texture_result)
         texture_features = texture_result.get("features", {})
     except Exception as e:
@@ -146,7 +260,6 @@ def process_image():
     # lighting
     try:
         lighting_result = analyze_lighting(img, show_debug=False, compute_tamper_score=True)
-        #print("Result from lighting:", lighting_result)       # debug
         scores["lighting"] = extract_tamper_score(lighting_result)
         lighting_features = lighting_result.get("features", {})
     except Exception as e:
@@ -163,12 +276,36 @@ def process_image():
             min_shadow_area=300,
             min_perimeter=30,
         )
-        #print("Result from depth:", depth_result)       # debug
         scores["depth"] = extract_tamper_score(depth_result)
         depth_features = depth_result.get("features", {})
     except Exception as e:
         print("error in depth analysis:", e)
         scores["depth"] = None
+
+    # generate evidence visualizations (always built; frontend decides what to show)
+    try:
+        tex_viz1, tex_viz2 = make_texture_vizzes(img, texture_result)
+    except Exception as e:
+        print("error in texture viz:", e)
+        tex_viz1, tex_viz2 = None, None
+
+    try:
+        light_viz1, light_viz2 = make_lighting_vizzes(img, lighting_result)
+    except Exception as e:
+        print("error in lighting viz:", e)
+        light_viz1, light_viz2 = None, None
+
+    try:
+        depth_viz1, depth_viz2 = make_depth_vizzes(img, depth_result)
+    except Exception as e:
+        print("error in depth viz:", e)
+        depth_viz1, depth_viz2 = None, None
+
+    evidence_images = {
+        "texture": {"shadow_overlay": tex_viz1, "lbp_map": tex_viz2},
+        "lighting": {"component_overlay": light_viz1, "ratio_heatmap": light_viz2},
+        "depth": {"contour_overlay": depth_viz1, "orientation_overlay": depth_viz2},
+    }
 
     # rule-based threshold vote
     THRESHOLD_TAMPER = 0.65
@@ -277,8 +414,9 @@ def process_image():
         ml_prediction =  ml_prediction,             # 0=real, 1=tampered, None=error
         ml_probability_tampered =  ml_probability,  # probability of class 1
         ml_module_probabilities = ml_module_probabilities,
-        # DEBUGGING
-        #"ml_features_used": combined_ml_features,
+
+        # evidence visualizations (base64 PNG strings)
+        evidence_images = evidence_images,
     ), 200
 
 if __name__ == "__main__":

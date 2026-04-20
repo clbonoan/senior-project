@@ -548,6 +548,7 @@ def extract_features(
     # analyze each shadow
     per_shadow_features = []
     log_ratios = []
+    shadow_log_ratios = {}  # label_index -> log_ratio, for visualization
 
     for i in range(1, num_shadows):  # 0 = background
         # print(f"\n--- Analyzing Shadow {i} ---")
@@ -569,6 +570,7 @@ def extract_features(
             per_shadow_features.append(features)
             if log_ratio is not None:
                 log_ratios.append(log_ratio)
+                shadow_log_ratios[i] = log_ratio
 
     usable = len(per_shadow_features)
     ml_features["num_components_usable"] = usable
@@ -584,7 +586,6 @@ def extract_features(
     if usable > 0:
         agg("comp_area", [f['area'] for f in per_shadow_features])
         agg("boundary_mrl", [f['mrl'] for f in per_shadow_features])
-        agg("boundary_angle_std", [f['angle_std'] for f in per_shadow_features])
         agg("umbra_frac", [f['umbra_frac'] for f in per_shadow_features])
         agg("ring_to_area", [f['ring_to_area'] for f in per_shadow_features])
         agg("Yn", [f['Yn'] for f in per_shadow_features])
@@ -593,7 +594,7 @@ def extract_features(
         agg("sr_skew", [f['sr_skew'] for f in per_shadow_features])
         agg("sr_kurtosis", [f['sr_kurtosis'] for f in per_shadow_features])
     else:
-        for name in ["comp_area", "boundary_mrl", "boundary_angle_std", "umbra_frac", 
+        for name in ["comp_area", "boundary_mrl", "umbra_frac",
                      "ring_to_area", "Yn", "sr_median", "sr_iqr", "sr_skew", "sr_kurtosis"]:
             ml_features[f"{name}_median"] = 0.0
             ml_features[f"{name}_iqr"] = 0.0
@@ -620,8 +621,6 @@ def extract_features(
         dists = np.asarray(dists, dtype=np.float32)
 
         ml_features["sr_dist_median"] = float(np.median(dists))
-        ml_features["sr_dist_mean"] = float(np.mean(dists))
-        ml_features["sr_dist_p75"] = float(np.percentile(dists, 75))
 
         median_ratios = feature_matrix[:, 0]        
         # robust outlier removal using MAD (median absolute deviation)
@@ -650,7 +649,6 @@ def extract_features(
 
         ml_features["sr_log_ratio_iqr"] = float(iqr)
         ml_features["sr_log_ratio_spread"] = float(spread)
-        ml_features["sr_num_inliers"] = int(len(inliers))
         ml_features["sr_confidence"] = float(len(inliers) / len(median_ratios))
 
         # use IQR for scoring since real shadows typically have IQR < 0.5
@@ -665,18 +663,15 @@ def extract_features(
 
     else:
         ml_features["sr_dist_median"] = 0.0
-        ml_features["sr_dist_mean"] = 0.0
-        ml_features["sr_dist_p75"] = 0.0
         ml_features["sr_log_ratio_iqr"] = 0.0
         ml_features["sr_log_ratio_spread"] = 0.0
-        ml_features["sr_num_inliers"] = 0
         ml_features["sr_confidence"] = 0.0
         #score = 0.0  # uncertain
 
     # print(f"Found {int(num_shadows-1)} shadows, {usable} usable")
     # print(f"Rule-Based Tamper Score: {score:.4f}")
 
-    return ml_features    
+    return ml_features, shadow_log_ratios, labels
 
 # --------------------------------------------------
 # TAMPER SCORE
@@ -709,14 +704,9 @@ def calculate_light_tamper_score(ml_features):
     return score
 
 # ---------------------------------------------------
-# CHOOSING IMAGE 
+# EXECUTE IMAGE ANALYSIS
 # ---------------------------------------------------
 def analyze_lighting(image_input, show_debug=False, compute_tamper_score=True):
-    # print tamper score
-    # similar to texture.py
-    # img = cv2.imread(image_path, cv2.IMREAD_COLOR)
-    # if img is None:
-    #     raise FileNotFoundError(image_path)
     if isinstance(image_input, (str, Path)):
         img = cv2.imread(str(image_input))
     else:
@@ -733,7 +723,7 @@ def analyze_lighting(image_input, show_debug=False, compute_tamper_score=True):
     assert mask.shape[:2] == img.shape[:2], "mask must align with original image"
 
     # extract ML features
-    features = extract_features(img, mask, debug=show_debug, viz=viz)
+    features, shadow_log_ratios, shadow_labels = extract_features(img, mask, debug=show_debug, viz=viz)
 
     # calculate tamper score (rule-based path only)
     tamper_score = None
@@ -751,6 +741,8 @@ def analyze_lighting(image_input, show_debug=False, compute_tamper_score=True):
     result = {
         "features": features,
         "mask": mask,
+        "shadow_log_ratios": shadow_log_ratios,
+        "shadow_labels": shadow_labels,
     }
 
     if tamper_score is not None:
@@ -759,5 +751,5 @@ def analyze_lighting(image_input, show_debug=False, compute_tamper_score=True):
     return result
 
 if __name__ == "__main__":
-    result = analyze_lighting("data/images/20-edited.jpg", show_debug=True)
+    result = analyze_lighting("data/images/2-edited.jpg", show_debug=True)
     print("\nExtracted features:", result["features"])
