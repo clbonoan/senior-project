@@ -7,32 +7,32 @@ const mlButton = document.getElementById("mlButton");
 const resultBox = document.getElementById("result");
 const loadingIndicator = document.getElementById("loadingIndicator");
 
-// lightbox modal
-const lightbox = document.createElement("div");
-lightbox.id = "lightbox";
-lightbox.innerHTML = '<img id="lightbox-img" alt=""><button id="lightbox-close">&times;</button>';
-document.body.appendChild(lightbox);
+// clicking an evidence image opens it up and shows a full-screen overlay
+const imageViewer = document.createElement("div");
+imageViewer.id = "imageViewer";
+imageViewer.innerHTML = '<img id="imageViewer-img" alt=""><button id="imageViewer-close">&times;</button>';
+document.body.appendChild(imageViewer);
 
-const lightboxImg = document.getElementById("lightbox-img");
+const imageViewerImg = document.getElementById("imageViewer-img");
 
-function openLightbox(src) {
-    lightboxImg.src = src;
-    lightbox.classList.add("active");
+function openImageViewer(src) {
+    imageViewerImg.src = src;
+    imageViewer.classList.add("active");
 }
 
-function closeLightbox() {
-    lightbox.classList.remove("active");
-    lightboxImg.src = "";
+function closeImageViewer() {
+    imageViewer.classList.remove("active");
+    imageViewerImg.src = "";
 }
 
-document.getElementById("lightbox-close").addEventListener("click", closeLightbox);
-lightbox.addEventListener("click", (e) => { if (e.target === lightbox) closeLightbox(); });
-document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeLightbox(); });
+document.getElementById("imageViewer-close").addEventListener("click", closeImageViewer);
+imageViewer.addEventListener("click", (e) => { if (e.target === imageViewer) closeImageViewer(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeImageViewer(); });
 
-// delegate clicks on evidence images to open lightbox
+// delegate clicks on evidence images to open the full-screen viewer
 resultBox.addEventListener("click", (e) => {
     if (e.target.classList.contains("evidence-img")) {
-        openLightbox(e.target.src);
+        openImageViewer(e.target.src);
     }
 });
 
@@ -201,7 +201,7 @@ function renderResults(data) {
         `;
         return;
     }
-    
+
     const scores = data.rule_based_scores;
     const votes = data.rule_based_votes;
     const evidence = data.evidence_images || {};
@@ -213,35 +213,26 @@ function renderResults(data) {
     console.log("ml probability tampered:", data.ml_probability_tampered);
     console.log("ml module probabilities:", data.ml_module_probabilities);
 
-    // build evidence block for one module: shown only when tampered or uncertain
-    function buildEvidenceBlock(feature, vote, vizKeys) {
-        if (vote === 0) return '';  // real vote: no evidence shown
-        const moduleEvidence = evidence[feature] || {};
-        const captions = evidenceCaptions[feature] || {};
-        return vizKeys
-            .filter(key => moduleEvidence[key])
-            .map(key => `
-                <div class="evidence-panel">
-                    <img class="evidence-img" src="data:image/png;base64,${moduleEvidence[key]}" alt="${feature} ${key}">
-                    <p class="evidence-caption">${captions[key] || ''}</p>
-                </div>`)
-            .join('');
-    }
+    const shouldShowMl =
+        modelChoice === "ml" &&
+        data.ml_prediction !== null &&
+        data.ml_prediction !== undefined;
 
-    // LEFT SIDE: rule-based results
-    let moduleColsHtml = '';
-    for (const [feature, score] of Object.entries(scores)) {
+    const moduleProbs = data.ml_module_probabilities || {};
+
+    // rule-based cards (no evidence images)
+    let ruleModuleColsHtml = '';
+    for (const feature of ['texture', 'lighting', 'depth']) {
+        const score = scores[feature];
         const vote = votes[feature];
         const cardClass = vote === 1 ? 'card-red' : vote === 0 ? 'card-green' : 'card-uncertain';
-        const evidenceHtml = buildEvidenceBlock(feature, vote, ['shadow_overlay', 'lbp_map', 'component_overlay', 'ratio_heatmap', 'contour_overlay', 'orientation_overlay']);
-        moduleColsHtml += `
+        ruleModuleColsHtml += `
             <div class="module-col">
                 <div class="feature-card ${cardClass}">
                     <div class="feature-title">${feature.toUpperCase()}</div>
                     <div class="feature-score">Score: ${score === null ? 'N/A' : score.toFixed(3)}</div>
                     <div class="feature-vote">Vote: ${formatVote(vote)}</div>
                 </div>
-                ${evidenceHtml}
             </div>`;
     }
 
@@ -250,20 +241,13 @@ function renderResults(data) {
         <p><b>Final Consensus Decision:</b> ${formatVote(data.final_rule_based_vote)}</p>
         <p><b>Tamper Threshold:</b> ${data.threshold}</p>
         <br><hr><br>
-        <div class="module-evidence-row">${moduleColsHtml}</div>
+        <div class="module-evidence-row">${ruleModuleColsHtml}</div>
     `;
-
-    // if there are results to show for ML side, show them
-    const shouldShowMl =
-        modelChoice === "ml" &&
-        data.ml_prediction !== null &&
-        data.ml_prediction !== undefined;
 
     let finalHtml = "";
 
     if (shouldShowMl) {
-        const moduleProbs = data.ml_module_probabilities || {};
-
+        // ML cards (no evidence images)
         let mlModuleColsHtml = '';
         for (const feature of ['texture', 'lighting', 'depth']) {
             const prob = moduleProbs[feature];
@@ -271,15 +255,12 @@ function renderResults(data) {
                 : prob >= 0.6 ? 'card-red'
                 : prob <= 0.4 ? 'card-green'
                 : 'card-uncertain';
-            const mlVote = prob == null ? null : prob >= 0.6 ? 1 : prob <= 0.4 ? 0 : null;
-            const evidenceHtml = buildEvidenceBlock(feature, mlVote, ['shadow_overlay', 'lbp_map', 'component_overlay', 'ratio_heatmap', 'contour_overlay', 'orientation_overlay']);
             mlModuleColsHtml += `
                 <div class="module-col">
                     <div class="feature-card ${mlCardClass}">
                         <div class="feature-title">${feature.toUpperCase()}</div>
                         <div class="feature-score">Probability Tampered: ${prob != null ? prob.toFixed(3) : 'N/A'}</div>
                     </div>
-                    ${evidenceHtml}
                 </div>`;
         }
 
@@ -287,13 +268,11 @@ function renderResults(data) {
             <h2>ML Stacked Model Results</h2>
             <p><b>Final Prediction:</b> ${formatVote(data.ml_prediction)}</p>
         `;
-
         if (data.ml_probability_tampered != null) {
             mlHtml += `<p><b>Final Stacked Probability Tampered:</b> ${data.ml_probability_tampered.toFixed(3)}</p>`;
         } else {
             mlHtml += `<p><i>No probability available</i></p>`;
         }
-
         mlHtml += `<br><hr><br><div class="module-evidence-row">${mlModuleColsHtml}</div>`;
 
         finalHtml = `
@@ -306,6 +285,71 @@ function renderResults(data) {
         finalHtml = `
             <div class="results-container">
                 <div class="results-column">${ruleHtml}</div>
+            </div>
+        `;
+    }
+
+    // shared evidence section — row-based grid so images and captions align across columns
+    const allVizKeys = ['shadow_overlay', 'lbp_map', 'component_overlay', 'ratio_heatmap', 'contour_overlay', 'orientation_overlay'];
+
+    // collect flagged modules with their panel data
+    const flaggedModules = [];
+    for (const feature of ['texture', 'lighting', 'depth']) {
+        const ruleVote = votes[feature];
+        const mlProb = moduleProbs[feature];
+        const mlVote = mlProb == null ? null : mlProb >= 0.6 ? 1 : mlProb <= 0.4 ? 0 : null;
+
+        const flaggedByRule = ruleVote !== 0;
+        const flaggedByMl = shouldShowMl && mlVote !== 0;
+        if (!flaggedByRule && !flaggedByMl) continue;
+
+        const moduleEvidence = evidence[feature] || {};
+        const captions = evidenceCaptions[feature] || {};
+        const panels = allVizKeys
+            .filter(key => moduleEvidence[key])
+            .map(key => ({ src: moduleEvidence[key], caption: captions[key] || '' }));
+
+        if (panels.length > 0) {
+            flaggedModules.push({ feature, label: feature.toUpperCase(), panels });
+        }
+    }
+
+    if (flaggedModules.length > 0) {
+        const colWidth = 'calc(33.33% - 17px)';
+        const gridCols = Array(flaggedModules.length).fill(colWidth).join(' ');
+        const maxPanels = Math.max(...flaggedModules.map(m => m.panels.length));
+
+        let gridCells = '';
+
+        // label row
+        for (const m of flaggedModules) {
+            gridCells += `<div class="evidence-module-label">${m.label}</div>`;
+        }
+
+        // one image row then one caption row per panel index
+        for (let i = 0; i < maxPanels; i++) {
+            for (const m of flaggedModules) {
+                const panel = m.panels[i];
+                gridCells += panel
+                    ? `<img class="evidence-img" src="data:image/png;base64,${panel.src}" alt="${m.feature}">`
+                    : `<div></div>`;
+            }
+            for (const m of flaggedModules) {
+                const panel = m.panels[i];
+                gridCells += panel
+                    ? `<p class="evidence-caption">${panel.caption}</p>`
+                    : `<div></div>`;
+            }
+        }
+
+        finalHtml += `
+            <div class="shared-evidence-section">
+                <br>
+                <h2>Supporting Evidence</h2>
+                <hr>
+                <div class="evidence-grid" style="grid-template-columns: ${gridCols}">
+                    ${gridCells}
+                </div>
             </div>
         `;
     }
