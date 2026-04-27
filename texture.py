@@ -152,18 +152,26 @@ def patch_entropy(lbp_u8, mask_u8=None, patch_size=32, stride=None, prefix=None,
     - uses overlapping patches (to capture local edits better)
     - uses robust stats (mean and std - std measures spread around the mean)
     - use different patch sizes to look at texture at different scales
-    - detects outlier patches (possible tampered regions)
+    - detects outlier patches (possible tampered regions (unusual))
     '''
-    # use half-overlapping if no stride is given
+    # if stride is not given, move half a patch each time (creates overlap between patches)
     if stride is None: 
         stride = max(8, patch_size // 2)
 
-    height, width = lbp_u8.shape[:2]
-    eps = 1e-12     # handle floating-point precision issues (prevent divide-by-zero)
+    # prefix the feature names so they represent each patch size
+    if prefix is None:
+        prefix = f"patch_entropy_s{patch_size}"
 
-    entropy_list = []       # entropy for all patches
-    entropy_inside = []     # entropy for patches inside shadow
-    entropy_outside = []    # entropy for patches outside shadow
+    height, width = lbp_u8.shape[:2]
+    # handle floating-point precision issues (prevent divide-by-zero)
+    eps = 1e-12
+
+    # entropy for all patches
+    entropy_list = []
+    # entropy for patches inside shadow
+    entropy_inside = []
+    # entropy for patches outside shadow
+    entropy_outside = []
     
     # looping over overlapping patches
     for y in range(0, height - patch_size + 1, stride):
@@ -173,27 +181,32 @@ def patch_entropy(lbp_u8, mask_u8=None, patch_size=32, stride=None, prefix=None,
             row_end = y + patch_size
             col_start = x
             col_end = x + patch_size
-            # use .ravel() to make 2D grid into a single list so np.bincount() can use the 1D list
+            # get one patch from the LBP image
+            # .ravel() turns 2D grid into a single list so np.bincount() can use the 1D list
             patch = lbp_u8[row_start:row_end, col_start:col_end].ravel()
 
             # compute entropy with a histogram (list of probabilities based on how often
             # each pixel value (0-255) showed up in a patch)
             hist = np.bincount(patch, minlength=256).astype(np.float32)
+            # calculate probabilities from histogram counts
             hist /= hist.sum() + eps
 
             # entropy = -(sum of all: probability of pixel appearing * log(probability))
             entropy = -float(np.sum(hist * np.log(hist + eps)))
             entropy_list.append(entropy)
 
-            # separate entropy by inside and outside shadow mask
+            # separate entropy patches by inside and outside shadow mask
             if mask_u8 is not None:
                 mask_patch = mask_u8[row_start:row_end, col_start:col_end].ravel()
+
+                # fraction of the patch that is inside the shadow
                 fraction_inside = (mask_patch > 0).sum() / mask_patch.size
                 if fraction_inside >= 0.7:
                     '''
-                    place entropy value in inside list if more than 70% of the patch is
+                    put entropy value in inside list if more than 70% of the patch is
                     inside a shadow found by the shadow mask; between 30-70% is not used
-                    because those may represent patches that are on a shadow edge (hard to identify)
+                    because those may represent patches that are on a shadow edge 
+                    (hard to identify)
                     '''
                     entropy_inside.append(entropy)
                 elif fraction_inside <= 0.3:
@@ -202,47 +215,163 @@ def patch_entropy(lbp_u8, mask_u8=None, patch_size=32, stride=None, prefix=None,
     # return 0 if no patches are found
     if len(entropy_list) == 0:
         return {
-            "patch_entropy_mean": 0.0,
-            "patch_entropy_std": 0.0,
-            "patch_entropy_max_dev": 0.0,
-            #"patch_entropy_min": 0.0,
-            "patch_entropy_in_mean": 0.0,
-            "patch_entropy_out_mean": 0.0,
-            "patch_entropy_outlier_frac": 0.0
+            f"{prefix}_mean": 0.0,
+            f"{prefix}_std": 0.0,
+            f"{prefix}_max_dev": 0.0,
+            f"{prefix}_in_mean": 0.0,
+            f"{prefix}_out_mean": 0.0,
+            f"{prefix}_in_out_gap": 0.0,
+            f"{prefix}_outlier_frac": 0.0,
         }
     
+    # turn the list into an array for stats
     entropy_arr = np.asarray(entropy_list, dtype=np.float32)
+
+    # average entropy across all patches
     mean = float(np.mean(entropy_arr))
-    # spread (standard deviation)
+    # spread of entropy values (standard deviation)
     std = float(np.std(entropy_arr))
 
-    # patches that are more than 2 standard deviations from mean
+    # patches that are more than 2 standard deviations from mean (unusual patches)
     if std > 1e-6:
+        # a large z-score means it is far from the mean, so it is unlike the shadow
         z_scores = (entropy_arr - mean) / std
 
-        # fraction of patches that are flagged unusial
+        # fraction of patches that are far from the average
         outlier_frac = float(np.mean(np.abs(z_scores) > 2.5))
 
-        # strongest deviation
+        # strongest deviation from the mean
         max_dev = float(np.max(np.abs(entropy_arr - mean)))
     else:
         outlier_frac = 0.0
         max_dev = 0.0
 
+    # average entropy inside and outside shadow patches
     in_mean = float(np.mean(entropy_inside)) if entropy_inside else 0.0
     out_mean = float(np.mean(entropy_outside)) if entropy_outside else 0.0
 
+    # return the features with names that correlate to the patch size
     return {
-        "patch_entropy_mean": mean,
-        "patch_entropy_std": std,
-        "patch_entropy_max_dev": max_dev,
-        #"patch_entropy_min": float(entropy_arr.min()),
-        "patch_entropy_in_mean": in_mean,
-        "patch_entropy_out_mean": out_mean,
-        "patch_entropy_in_out_gap": abs(in_mean - out_mean),
-        "patch_entropy_outlier_frac": outlier_frac
+        f"{prefix}_mean": mean,
+        f"{prefix}_std": std,
+        f"{prefix}_max_dev": max_dev,
+        f"{prefix}_in_mean": in_mean,
+        f"{prefix}_out_mean": out_mean,
+        f"{prefix}_in_out_gap": abs(in_mean - out_mean),
+        f"{prefix}_outlier_frac": outlier_frac,
     }
-                    
+
+def patch_luminance_std(L8_u8, mask_u8=None, patch_size=32, stride=None, prefix=None, z_thresh=2.5):
+    '''
+    compute patch-level luminance standard deviation using overlapping patches
+
+    why:
+    - std shows how much brightness varies inside a patch
+    - real shadows usually keep some surface detail / variation
+    - fake shadows may smooth or flatten that variation
+    - using multiple patch sizes lets us look at local and larger texture strength
+
+    returns summary features like:
+    - mean std across patches
+    - std of the patch-std values
+    - max deviation from the mean
+    - average patch std inside shadows
+    - average patch std outside shadows
+    - inside/outside gap
+    - fraction of unusual patches
+    '''
+
+    # if stride is not given, move half a patch each time
+    # this creates overlap between patches
+    if stride is None:
+        stride = max(8, patch_size // 2)
+
+    # use the patch size in the feature names
+    if prefix is None:
+        prefix = f"patch_lumstd_s{patch_size}"
+
+    height, width = L8_u8.shape[:2]
+
+    # store the standard deviation value for every patch
+    std_list = []
+
+    # store patch std values for patches mostly inside shadow
+    std_inside = []
+
+    # store patch std values for patches mostly outside shadow
+    std_outside = []
+
+    # loop over overlapping patches
+    for y in range(0, height - patch_size + 1, stride):
+        for x in range(0, width - patch_size + 1, stride):
+            # grab one patch from the luminance image
+            patch = L8_u8[y:y + patch_size, x:x + patch_size].astype(np.float32)
+
+            # standard deviation of brightness values in this patch
+            patch_std = float(np.std(patch))
+            std_list.append(patch_std)
+
+            # if mask is given, separate inside-shadow and outside-shadow patches
+            if mask_u8 is not None:
+                mask_patch = mask_u8[y:y + patch_size, x:x + patch_size].ravel()
+
+                # fraction of this patch inside the shadow
+                fraction_inside = (mask_patch > 0).sum() / mask_patch.size
+
+                # only use clearly inside or clearly outside patches
+                if fraction_inside >= 0.7:
+                    std_inside.append(patch_std)
+                elif fraction_inside <= 0.3:
+                    std_outside.append(patch_std)
+
+    # if no patches found, return zeros so code does not crash
+    if len(std_list) == 0:
+        return {
+            f"{prefix}_mean": 0.0,
+            f"{prefix}_std": 0.0,
+            f"{prefix}_max_dev": 0.0,
+            f"{prefix}_in_mean": 0.0,
+            f"{prefix}_out_mean": 0.0,
+            f"{prefix}_in_out_gap": 0.0,
+            f"{prefix}_outlier_frac": 0.0,
+        }
+
+    # convert list to numpy array for stats
+    std_arr = np.asarray(std_list, dtype=np.float32)
+
+    # average patch std across all patches
+    mean = float(np.mean(std_arr))
+
+    # spread of patch std values
+    std = float(np.std(std_arr))
+
+    # find unusual patches with z-scores
+    if std > 1e-6:
+        z_scores = (std_arr - mean) / std
+
+        # fraction of patches that are far from average
+        outlier_frac = float(np.mean(np.abs(z_scores) > z_thresh))
+
+        # strongest deviation from average
+        max_dev = float(np.max(np.abs(std_arr - mean)))
+    else:
+        outlier_frac = 0.0
+        max_dev = 0.0
+
+    # average patch std inside and outside shadows
+    in_mean = float(np.mean(std_inside)) if std_inside else 0.0
+    out_mean = float(np.mean(std_outside)) if std_outside else 0.0
+
+    return {
+        f"{prefix}_mean": mean,
+        f"{prefix}_std": std,
+        f"{prefix}_max_dev": max_dev,
+        f"{prefix}_in_mean": in_mean,
+        f"{prefix}_out_mean": out_mean,
+        f"{prefix}_in_out_gap": abs(in_mean - out_mean),
+        f"{prefix}_outlier_frac": outlier_frac,
+    }
+
 def clone_detection(L8_u8, patch_size=40, max_patches=100, similar_thresh=0.95):
     '''
     sample patches throughout the image and compare them to each other; if two patches
@@ -312,7 +441,7 @@ def clone_detection(L8_u8, patch_size=40, max_patches=100, similar_thresh=0.95):
     for i in range(num_patches):
         for j in range(i + 1, num_patches):
             # dot product of two normalized vectors = cosine similarity (1.0 = identical)
-            # guard: patches must be far enough apart to be suspicious
+            # patches must be far enough apart to be suspicious
             dist = np.sqrt((patches[i]["row"] - patches[j]["row"])**2 + 
                             (patches[i]["col"] - patches[j]["col"])**2)
                 
@@ -346,18 +475,12 @@ def clone_detection(L8_u8, patch_size=40, max_patches=100, similar_thresh=0.95):
 # TEXTURE COMPARISON AND HELPERS FOR TAMPER SCORE
 # compare texture between shadow patches and nearby lit patches
 # ----------------------------------------------------------
-# def chi2(a, b, eps=1e-9):
-#     # chi-squared distance between two histograms (measuring texture simularity)
-#     d = (a - b)
-#     s = (a + b) + eps
-#     return 0.5 * np.sum((d * d) / s)
-
 def pairs_one_per_component(
     mask_u8, L8, lbp, gx, gy,
-    min_area=300,            # keep consistent with your mask cleanup
-    patch_size=25, 
-    in_offset=6, 
-    out_offset=9, 
+    min_area=300,
+    patch_size=25,
+    in_offset=6,
+    out_offset=9,
     max_step=30
 ):
     '''
@@ -368,127 +491,125 @@ def pairs_one_per_component(
       chi2_list (distances): list[float]
       patch_pairs: [((x_in,y_in),(x_out,y_out), size)]
     '''
-    h, w = L8.shape
-    s = patch_size // 2
+    height, width = L8.shape
+    half_patch = patch_size // 2
     chi2_list, patch_pairs = [], []
 
     # find all separate shadow components/regions
-    num, labels, stats, _ = cv2.connectedComponentsWithStats(mask_u8, connectivity=8)
-    k3 = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    num_components, labels, stats, _ = cv2.connectedComponentsWithStats(mask_u8, connectivity=8)
+    ellipse_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
 
-    def in_bounds(y, x):
-        # check if patch fits in image
-        return (y - s) >= 0 and (x - s) >= 0 and (y + s) < h and (x + s) < w
+    def patch_fits_in_image(center_y, center_x):
+        # check that a patch centered at (center_y, center_x) stays within image bounds
+        top_edge = center_y - half_patch >= 0
+        left_edge = center_x - half_patch >= 0
+        bottom_edge = center_y + half_patch < height
+        right_edge = center_x + half_patch < width
+        return top_edge and left_edge and bottom_edge and right_edge
 
-    def crop(img, y, x):
-        # extract patch from image
-        return img[y - s:y + s + 1, x - s:x + s + 1]
+    def crop_patch(img, center_y, center_x):
+        # extract a square patch centered at (center_y, center_x)
+        return img[center_y - half_patch : center_y + half_patch + 1,
+                   center_x - half_patch : center_x + half_patch + 1]
 
     # go through each shadow region
-    for i in range(1, num):  # 0 is background
-        area = stats[i, cv2.CC_STAT_AREA]
+    for component_idx in range(1, num_components):  # 0 is background
+        component_area = stats[component_idx, cv2.CC_STAT_AREA]
         # skip small regions
-        if area < min_area:
+        if component_area < min_area:
             continue
 
-        # grab shadow component    
-        component = (labels == i).astype(np.uint8) * 255
-        boundary = cv2.morphologyEx(component, cv2.MORPH_GRADIENT, k3)
-        
+        # grab shadow component
+        component = (labels == component_idx).astype(np.uint8) * 255
+
+        boundary = cv2.morphologyEx(component, cv2.MORPH_GRADIENT, ellipse_kernel)
+
         if boundary.sum() == 0:
             continue
 
         # find a good point inside the shadow that is far from edges
         dist = cv2.distanceTransform((component > 0).astype(np.uint8), cv2.DIST_L2, 5)
         yi_in, xi_in = np.unravel_index(np.argmax(dist), dist.shape)
-        yi_in = int(np.clip(yi_in, s, h - s - 1))
-        xi_in = int(np.clip(xi_in, s, w - s - 1))
-        
-        if not in_bounds(yi_in, xi_in):
+        yi_in = int(np.clip(yi_in, half_patch, height - half_patch - 1))
+        xi_in = int(np.clip(xi_in, half_patch, width  - half_patch - 1))
+
+        if not patch_fits_in_image(yi_in, xi_in):
             continue
 
-        # find the closest boundary point
-        by, bx = np.where(boundary > 0)
-        # calculate the squared euclidean distance between a boundary point with coords bx, by and each point ->
-        # in a set of points with coords xi_in, yi_in;
-        # the index of the point with closest distance to bx, by is assigned to j
-        j = int(np.argmin((by - yi_in)**2 + (bx - xi_in)**2))
-        yb, xb = int(by[j]), int(bx[j])
+        # find the closest boundary point to the deep interior point
+        boundary_ys, boundary_xs = np.where(boundary > 0)
+        # calculate squared euclidean distance from each boundary pixel to the interior point
+        # and keep the index of the closest one
+        closest_idx = int(np.argmin((boundary_ys - yi_in)**2 + (boundary_xs - xi_in)**2))
+        boundary_y, boundary_x = int(boundary_ys[closest_idx]), int(boundary_xs[closest_idx])
 
-        # find out which direction is outward (going toward lit area)
-        g = np.array([gx[yb, xb], gy[yb, xb]], dtype=np.float32)
-        nrm = float(np.linalg.norm(g))
+        # find the outward direction (pointing away from shadow interior, toward lit area)
+        gradient_vec = np.array([gx[boundary_y, boundary_x], gy[boundary_y, boundary_x]], dtype=np.float32)
+        gradient_magnitude = float(np.linalg.norm(gradient_vec))
 
-        # set default values for direction (normalized x and y direction)
-        nx, ny = 1.0, 0.0
+        # default outward direction if gradient is too weak to use
+        outward_x, outward_y = 1.0, 0.0
 
-        if nrm > 1e-3:
-            # gradient direction (magnitude/length of gradiant vector g to see how steep slope is) 
-            nx, ny = g[0] / nrm, g[1] / nrm
+        if gradient_magnitude > 1e-3:
+            outward_x = gradient_vec[0] / gradient_magnitude
+            outward_y = gradient_vec[1] / gradient_magnitude
 
         # shadow centroid (the weighted average position of all points in shadow shape)
-        # the "geometric center", not always visually in the center        
+        # the "geometric center", not always visually in the center
         shadow_moments = cv2.moments(component, binaryImage=True)
 
-        # compute centroid if area is valid
+        # refine outward direction using centroid-to-boundary vector if centroid is valid
         if abs(shadow_moments["m00"]) >= 1e-6:
-            # calculate actual center (centroid - geometric center of shadow region)
-            # average x = sum of all x values / num of pixels
-            cx = shadow_moments["m10"] / shadow_moments["m00"] 
-            cy = shadow_moments["m01"] / shadow_moments["m00"]
+            centroid_x = shadow_moments["m10"] / shadow_moments["m00"]
+            centroid_y = shadow_moments["m01"] / shadow_moments["m00"]
 
-            # vector from shadow center to boundary
-            center_to_boundary = np.array([xb - cx, yb - cy], dtype=np.float32)
-            center_to_boundary_magnitude = float(np.linalg.norm(center_to_boundary))
-            
-            if center_to_boundary_magnitude > 1e-6:
-                nx, ny = (center_to_boundary / center_to_boundary_magnitude)
+            # vector pointing from the shadow's center outward to the boundary point
+            centroid_to_boundary = np.array([boundary_x - centroid_x, boundary_y - centroid_y], dtype=np.float32)
+            centroid_to_boundary_magnitude = float(np.linalg.norm(centroid_to_boundary))
+
+            if centroid_to_boundary_magnitude > 1e-6:
+                outward_x, outward_y = centroid_to_boundary / centroid_to_boundary_magnitude
             else:
-                nx, ny = 1.0, 0.0
+                outward_x, outward_y = 1.0, 0.0
 
-        # get the inside shadow patch
-        yi_samp = int(np.clip(yb - in_offset * ny, s, h - s - 1))
-        xi_samp = int(np.clip(xb - in_offset * nx, s, w - s - 1))
-        
-        if not in_bounds(yi_samp, xi_samp):
+        # inside patch center: step inward from the boundary point
+        inside_patch_y = int(np.clip(boundary_y - in_offset * outward_y, half_patch, height - half_patch - 1))
+        inside_patch_x = int(np.clip(boundary_x - in_offset * outward_x, half_patch, width  - half_patch - 1))
+
+        if not patch_fits_in_image(inside_patch_y, inside_patch_x):
             continue
 
-        # get the outside shadow patch
-        step = out_offset
-        yo = int(np.clip(yb + step * ny, s, h - s - 1))
-        xo = int(np.clip(xb + step * nx, s, w - s - 1))
-        
-        # keep moving outward until outside the shadow
-        while step < max_step and component[yo, xo] > 0:
-            step += 2
-            yo = int(np.clip(yb + step * ny, s, h - s - 1))
-            xo = int(np.clip(xb + step * nx, s, w - s - 1))
-        
-        if not in_bounds(yo, xo):
+        # outside patch center: step outward until we leave the shadow mask
+        outward_step = out_offset
+        outside_patch_y = int(np.clip(boundary_y + outward_step * outward_y, half_patch, height - half_patch - 1))
+        outside_patch_x = int(np.clip(boundary_x + outward_step * outward_x, half_patch, width  - half_patch - 1))
+
+        while outward_step < max_step and component[outside_patch_y, outside_patch_x] > 0:
+            outward_step += 2
+            outside_patch_y = int(np.clip(boundary_y + outward_step * outward_y, half_patch, height - half_patch - 1))
+            outside_patch_x = int(np.clip(boundary_x + outward_step * outward_x, half_patch, width  - half_patch - 1))
+
+        if not patch_fits_in_image(outside_patch_y, outside_patch_x):
             continue
 
-        # extract patches
-        pinL = crop(L8,  yi_samp, xi_samp)
-        poutL = crop(L8,  yo, xo)
-        pinLBP = crop(lbp, yi_samp, xi_samp)
-        poutLBP = crop(lbp, yo, xo)
+        # extract the inside and outside patches (luminance and LBP)
+        inside_patch_luminance = crop_patch(L8,  inside_patch_y,  inside_patch_x)
+        outside_patch_luminance = crop_patch(L8,  outside_patch_y, outside_patch_x)
+        inside_patch_lbp = crop_patch(lbp, inside_patch_y,  inside_patch_x)
+        outside_patch_lbp = crop_patch(lbp, outside_patch_y, outside_patch_x)
 
-        # make sure the inside patch is darker than outside
-        m_in = float(np.mean(pinL))
-        m_out = float(np.mean(poutL))
+        # make sure the inside patch is darker than outside (swap if needed)
+        mean_brightness_inside = float(np.mean(inside_patch_luminance))
+        mean_brightness_outside = float(np.mean(outside_patch_luminance))
 
-        if m_out <= m_in:
-            # swap to keep outside brighter
-            pinL, poutL = poutL, pinL
-            pinLBP, poutLBP = poutLBP, pinLBP
-            (xi_samp, yi_samp), (xo, yo) = (xo, yo), (xi_samp, yi_samp)
-            m_in, m_out = m_out, m_in
+        if mean_brightness_outside <= mean_brightness_inside:
+            # swap so the darker patch is always treated as the shadow side
+            inside_patch_luminance, outside_patch_luminance = outside_patch_luminance, inside_patch_luminance
+            inside_patch_lbp, outside_patch_lbp = outside_patch_lbp, inside_patch_lbp
+            (inside_patch_x, inside_patch_y), (outside_patch_x, outside_patch_y) =\
+                (outside_patch_x, outside_patch_y), (inside_patch_x, inside_patch_y)
 
-        # compare the textures with chi-squared distasnce
-        h_in,  _ = np.histogram(pinLBP.ravel(),  bins=256, range=(0, 256), density=True)
-        h_out, _ = np.histogram(poutLBP.ravel(), bins=256, range=(0, 256), density=True)
-        
-        # calculate the chi-squared distance (lower = more similar)
+        # compare LBP histograms with chi-squared distance (lower = more similar texture)
         '''
         ideal range for chi-squared distance:
         - 0-0.2: very similar textures (likely real shadows)
@@ -500,16 +621,20 @@ def pairs_one_per_component(
         - 0.3-0.8: some texture difference and may need more investigation
         ->0.8: likely a fake shadow
         '''
-        d = 0.5 * np.sum(((h_in - h_out) ** 2) / (h_in + h_out + 1e-9))
+        lbp_hist_inside, _ = np.histogram(inside_patch_lbp.ravel(), bins=256, range=(0, 256), density=True)
+        lbp_hist_outside, _ = np.histogram(outside_patch_lbp.ravel(), bins=256, range=(0, 256), density=True)
+        chi2_distance = 0.5 * np.sum(
+            ((lbp_hist_inside - lbp_hist_outside) ** 2) / (lbp_hist_inside + lbp_hist_outside + 1e-9)
+        )
 
-        chi2_list.append(float(d))
-        x0_in, y0_in = xi_samp - s, yi_samp - s
-        x0_out, y0_out = xo - s, yo - s
-        patch_pairs.append(((x0_in, y0_in), (x0_out, y0_out), patch_size))
+        chi2_list.append(float(chi2_distance))
+        inside_top_left_x = inside_patch_x - half_patch
+        inside_top_left_y = inside_patch_y - half_patch
+        outside_top_left_x = outside_patch_x - half_patch
+        outside_top_left_y = outside_patch_y - half_patch
+        patch_pairs.append(((inside_top_left_x, inside_top_left_y), (outside_top_left_x, outside_top_left_y), patch_size))
 
     return chi2_list, patch_pairs
-
-
 
 # ----------------------------------------------------------
 # FEATURE EXTRACTION
@@ -534,63 +659,12 @@ def extract_features(
     '''
     ml_features = {}
 
-    # boundary and masks
+    # make sure mask is uint8
     mask = mask.astype(np.uint8)
+
+    # get the shadow boundary from the mask
+    # this is needed for the boundary direction consistency features
     boundary = boundary_from_mask(mask)
-
-    # in_m = mask > 0
-    # out_m = ~in_m
-
-    # coverage/edges
-    '''
-    mask_frac = how much of the image is covered by a detected shadow
-    boundary_frac = how long or detailed the shadow edge is compared to the whole image
-    '''
-    # ml_features["mask_frac"] = float(in_m.mean())
-    # ml_features["boundary_frac"] = float((boundary > 0).mean())
-
-    # luminance contrast (means/stds only)
-    '''
-    L_in_mean/L_out_mean = average brightness inside and outside the shadow
-    (shadows should be darker)
-    L_in_std/L_out_std = how much brightness varies (contrast inside and outside)
-    (real shadows keep surface texture, fake ones look smooth)
-    contrast_shadow_vs_non = how strong the brightness drop is from light to shadow
-    (ratio of how dark the shadow region is compared to the lit area)
-    '''
-    # if in_m.any():
-    #     mu_in, sd_in = mean_std(L8[in_m])
-    # else:
-    #     mu_in, sd_in = 0.0, 0.0
-    # if out_m.any():
-    #     mu_out, sd_out = mean_std(L8[out_m])
-    # else:
-    #     mu_out, sd_out = 0.0, 0.0 
-
-    # ml_features["L_in_mean"] = mu_in
-    # ml_features["L_in_std"]  = sd_in
-    # ml_features["L_out_mean"] = mu_out
-    # ml_features["L_out_std"]  = sd_out
-    # ml_features["contrast_shadow_vs_non"] = (mu_out - mu_in) / (mu_out + 1e-6)
-
-    # texture entropy (LBP)
-    '''
-    entropy = measure of randomness in the texture pattern (higher = more detailed texture)
-    inside vs outside entropy comparison tells whether the shadowed region kept the same --
-    texture randomness as the lit area
-    '''
-    # ml_features["lbp_entropy_in"]  = lbp_entropy_np(lbp, region=mask)
-    # ml_features["lbp_entropy_out"] = lbp_entropy_np(lbp, region=(255 - mask))
-
-    # shadow component shape (minimal)
-    '''
-    look at shape of the shadow areas
-    - how many separate shadow blobs exist
-    - how large they are
-    - how irregular the boundaries are
-    - ^ helps describe whether the detected shadow is one smooth region or lots of tiny parts (noisy)
-    '''
-    # ml_features.update(component_stats_min(mask))
 
     # boundary geometry consistency
     '''
@@ -617,55 +691,67 @@ def extract_features(
     ml_features["chi2_p50"] = percentile(d_arr, 50) if d_arr.size else 0.0
     ml_features["chi2_p75"] = percentile(d_arr, 75) if d_arr.size else 0.0
 
-    # how often similarity is high (small chi-squared value) or low (large chi-squared value)
+    # MULTI-SCALE PATCH ENTROPY FEATURES
     '''
-    low std = region looks smooth (possibly fake shadow)
-    high std = region has texture detail (typical of real shadow)
+    using multiple sizes instead of only one patch size; small patches are for more 
+    local details, medium or large patches are for more overall texture consistency
     '''
-    # ml_features["share_low_chi2"]  = float(np.mean(d_arr <= (ml_features["chi2_p25"] if d_arr.size else 0.0))) if d_arr.size else 0.0
-    # ml_features["share_high_chi2"] = float(np.mean(d_arr >= (ml_features["chi2_p75"] if d_arr.size else 0.0))) if d_arr.size else 0.0
-    # ml_features["share_low_chi2"] = float(np.mean(d_arr <= 0.15)) if d_arr.size else 0.0
-    # ml_features["share_high_chi2"] = float(np.mean(d_arr >= 0.35)) if d_arr.size else 0.0
+    for patch_size in [24, 40]:
+        try:
+            # only using one patch size
+            entropy_feats = patch_entropy(
+                lbp.astype(np.uint8), 
+                mask.astype(np.uint8), 
+                patch_size=patch_size,
+                prefix=f"patch_entropy_s{patch_size}"
+            )
+        except Exception:
+            # use default zero values instead of crashing
+            entropy_feats = {
+                f"patch_entropy_s{patch_size}_mean": 0.0,
+                f"patch_entropy_s{patch_size}_std": 0.0,
+                f"patch_entropy_s{patch_size}_max_dev": 0.0,
+                f"patch_entropy_s{patch_size}_in_mean": 0.0,
+                f"patch_entropy_s{patch_size}_out_mean": 0.0,
+                f"patch_entropy_s{patch_size}_in_out_gap": 0.0,
+                f"patch_entropy_s{patch_size}_outlier_frac": 0.0,      
+            }
+        ml_features.update(entropy_feats)
 
-    # use lbp and mask to produce simple patch entropy features
-    try:
-        # only using one patch size
-        entropy_feats = patch_entropy(lbp.astype(np.uint8), mask.astype(np.uint8), patch_size=40)
-    except Exception:
-        # use default values instead of crashing
-        entropy_feats = {
-            "patch_entropy_mean": 0.0,
-            "patch_entropy_std": 0.0,
-            "patch_entropy_max": 0.0,
-            #"patch_entropy_min": 0.0,
-            "patch_entropy_in_mean": 0.0,
-            "patch_entropy_out_mean": 0.0,
-            "patch_entropy_in_out_gap": 0.0,
-            "patch_entropy_outlier_frac": 0.0        
-        }
-    ml_features.update(entropy_feats)
+    # MULTI-SCALE PATCH LUMINANCE (light intensity) STD FEATURES
+    '''
+    using luminance standard deviation to measure how much local brightness varies
+    in a patch
 
-    # clone stamp detection features
-    try:
-        # save patch positions for visualization
-        clone_feats, _ = clone_detection(
-            L8.astype(np.uint8), 
-            patch_size=40, 
-            max_patches=100, 
-            similar_thresh=0.95
-        )
-    except Exception:
-        # use default values instead of crashing
-        clone_feats = {
-            "clone_similar_max": 0.0,
-            "clone_similar_count": 0,
-            "clone_similar_frac": 0.0
-        }    
-    ml_features.update(clone_feats)
+    idea:
+    - real shadows keep some texture / variation from the surface underneath
+    - fake shadows can make regions look too smooth or too flat
+    - compare patch luminance variation at different patch sizes
+    '''
+    for patch_size in [24, 40]:
+        try:
+            lumstd_feats = patch_luminance_std(
+                L8.astype(np.uint8),
+                mask.astype(np.uint8),
+                patch_size=patch_size,
+                prefix=f"patch_lumstd_s{patch_size}"
+            )
+        except Exception:
+            # use zeros if something goes wrong
+            lumstd_feats = {
+                f"patch_lumstd_s{patch_size}_mean": 0.0,
+                f"patch_lumstd_s{patch_size}_std": 0.0,
+                f"patch_lumstd_s{patch_size}_max_dev": 0.0,
+                f"patch_lumstd_s{patch_size}_in_mean": 0.0,
+                f"patch_lumstd_s{patch_size}_out_mean": 0.0,
+                f"patch_lumstd_s{patch_size}_in_out_gap": 0.0,
+                f"patch_lumstd_s{patch_size}_outlier_frac": 0.0,
+            }
+
+        ml_features.update(lumstd_feats)
 
     return ml_features
 
-# IMPORTANT: disable tamper score until accuracy improves
 # ----------------------------------------------------------
 # TAMPER SCORE CALCULATION & FEATURE EXTRACTION
 # ----------------------------------------------------------
@@ -694,7 +780,7 @@ def calculate_texture_tamper_score(chi2_list, features=None):
             return 1.0
         return (x - low) / (high - low + 1e-12)
     
-    # TEXTURE MISMATCH SCORE FROM CHI2_LIST
+    # TEXTURE MISMATCH SCORE FROM CHI2 LIST
     if len(chi2_list) == 0:
         texture_score = 0.0  # no shadows are found so assume real
     else:
@@ -718,9 +804,11 @@ def calculate_texture_tamper_score(chi2_list, features=None):
         )
 
     # ENTROPY ANOMALY SCORE
-    entropy_gap = float(features.get("patch_entropy_in_out_gap", 0.0))
-    entropy_outlier_frac = float(features.get("patch_entropy_outlier_frac", 0.0))
-    entropy_std = float(features.get("patch_entropy_std", 0.0))
+    # use the medium patch size=40 for the rule-based score
+    # this keeps the computed tamper score simple while still using multi-scale for ML
+    entropy_gap = float(features.get("patch_entropy_s40_in_out_gap", 0.0))
+    entropy_outlier_frac = float(features.get("patch_entropy_s40_outlier_frac", 0.0))
+    entropy_std = float(features.get("patch_entropy_s40_std", 0.0))
 
     score_entropy_gap = linear_score(entropy_gap, 0.15, 0.60)
     score_entropy_outliers = linear_score(entropy_outlier_frac, 0.05, 0.25)
@@ -737,7 +825,9 @@ def calculate_texture_tamper_score(chi2_list, features=None):
     clone_similar_count = float(features.get("clone_similar_count", 0.0))
     clone_similar_frac = float(features.get("clone_similar_frac", 0.0))
 
-    # high cosine similarity among distant patches is suspicious
+    # high cosine similarity among distant patches is suspicious;
+    # cosine similarity close to 1 signifies pixel data has identical color, 
+    # texture, and orientation as the source
     score_clone_max = linear_score(clone_similar_max, 0.92, 0.99)
     score_clone_count = linear_score(clone_similar_count, 1.0, 5.0)
     score_clone_frac = linear_score(clone_similar_frac, 0.02, 0.12)
@@ -757,59 +847,6 @@ def calculate_texture_tamper_score(chi2_list, features=None):
 
     return clamp(tamper_score)
 
-    # # thresholds
-    # LOW_THRESHOLD = 0.10   # similar texture
-    # HIGH_THRESHOLD = 0.30   # very different texture
-
-    # # average texture difference for first score component
-    # mean_chi2 = float(np.mean(chi2_arr))
-    # if mean_chi2 <= LOW_THRESHOLD:
-    #     score_mean = 0.0
-    # elif mean_chi2 >= HIGH_THRESHOLD:
-    #     score_mean = 1.0
-    # else:
-    #     # linear interpolation if mean is between thresholds
-    #     score_mean = (mean_chi2 - LOW_THRESHOLD) / (HIGH_THRESHOLD - LOW_THRESHOLD)
-
-    # # max difference (worst case) for second score component
-    # # flag if even one shadow is very suspicious
-    # max_chi2 = float(np.max(chi2_arr))
-    # if max_chi2 <= LOW_THRESHOLD:
-    #     score_max = 0.0
-    # elif max_chi2 >= HIGH_THRESHOLD:
-    #     score_max = 1.0
-    # else:
-    #     score_max = (max_chi2 - LOW_THRESHOLD) / (HIGH_THRESHOLD - LOW_THRESHOLD)
-
-    # # consistency of values for third score component
-    # # real shadows should have similar values
-    # # fake shadows might have mixed results (some match, some don't)
-    # std_chi2 = float(np.std(chi2_arr))
-    # if std_chi2 > 0.1:
-    #     score_consistency = 0.3  # penalty for inconsistency
-    # else:
-    #     score_consistency = 0.0
-    
-    # # percentage of suspicious shadows for fourth score component
-    # # count how many shadows exceed the high threshold
-    # num_suspicious = int(np.sum(chi2_arr > HIGH_THRESHOLD))
-    # pct_suspicious = num_suspicious / len(chi2_arr)
-    # score_percentage = pct_suspicious
-    
-    # # combine all components with weights
-    # # mean is most important, max catches extreme cases
-    # tamper_score = (
-    #     0.40 * score_mean +        # average behavior
-    #     0.30 * score_max +         # worst case
-    #     0.15 * score_consistency + # how consistent
-    #     0.15 * score_percentage    # how many are bad
-    # )
-    
-    # # IMPORTANT: tamper score is disabled until feature analysis and extraction is reliable enough
-    # # clamp score to [0, 1]
-    # tamper_score = max(0.0, min(1.0, tamper_score))
-    
-    # return tamper_score           
 
 # ----------------------------------------------------------
 # VISUALIZATION HELPERS
@@ -974,14 +1011,14 @@ def analyze_texture(image_input, visualize=True, compute_tamper_score=True, max_
 
     # EXACTLY one pair per component
     chi2_list, patch_pairs = pairs_one_per_component(
-        mask_u8=mask, 
-        L8=L8_text, 
-        lbp=lbp, 
-        gx=gx, 
+        mask_u8=mask,
+        L8=L8_text,
+        lbp=lbp,
+        gx=gx,
         gy=gy,
-        min_area=300, 
-        patch_size=25, 
-        in_offset=6, 
+        min_area=800,
+        patch_size=25,
+        in_offset=6,
         out_offset=9
     )
 
@@ -1042,5 +1079,5 @@ def analyze_texture(image_input, visualize=True, compute_tamper_score=True, max_
     return result
 
 if __name__ == "__main__":
-    result = analyze_texture("data/images/45-edited.jpg", visualize=True)
+    result = analyze_texture("data/images/93-edited.jpg", visualize=True)
     print("\nExtracted features:", result["features"])
