@@ -449,6 +449,7 @@ h3 {
   z-index: 1000;
   align-items: center;
   justify-content: center;
+  overflow: hidden;
 }
 
 #imageViewer.active {
@@ -461,12 +462,29 @@ h3 {
   border-radius: 8px;
   box-shadow: 0 0 40px rgba(0, 0, 0, 0.8);
   object-fit: contain;
+  transition: transform 0.1s ease;
+  cursor: zoom-in;
+}
+
+#imageViewer-img.zoom-active {
+  cursor: zoom-out;
+}
+
+#imageViewer-hint {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 13px;
+  pointer-events: none;
+  margin: 0;
 }
 
 #imageViewer-close {
   position: absolute;
   top: 20px;
-  right: 28px;
+  right: 30px;
   background: none;
   border: none;
   color: #fff;

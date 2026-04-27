@@ -151,29 +151,53 @@ def make_lighting_vizzes(img, result):
 def make_depth_vizzes(img, result):
     mask = result.get("mask")
     gray = result.get("gray_img")
+    debug_points = result.get("debug_points", [])
+    shadow_contours = result.get("shadow_contours", [])
     if mask is None:
         return None, None
 
-    contours, _ = cv.findContours(mask, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+    MIN_AREA = 300
+    MIN_PERIMETER = 30
+    MIN_ELONGATION = 1.5
 
-    # viz 1: shadow contours on grayscale (shows shadow edges analyzed for penumbra)
+    # viz 1: penumbra sampling points on shadow overlay
+    # green dots = locations along shadow boundaries where a perpendicular brightness
+    # profile was sampled to measure the penumbra width (gradual vs. sharp transition)
     base = cv.cvtColor(gray, cv.COLOR_GRAY2BGR) if gray is not None else img.copy()
-    cv.drawContours(base, contours, -1, (0, 220, 0), 2)
+    base[mask > 0] = (
+        base[mask > 0].astype(np.float32) * 0.6
+        + np.array([0, 0, 180], dtype=np.float32) * 0.4
+    ).astype(np.uint8)
+    for (x, y) in debug_points[:2000]:
+        cv.circle(base, (x, y), 3, (0, 255, 0), -1)
     viz1 = _encode_b64(_resize_for_web(base))
 
-    # viz 2: orientation lines on original (all lines same direction = real)
+    # viz 2: elongation bounding boxes on original image
+    # cyan box = tightest rectangle fitted around each shadow (box proportions = elongation ratio)
+    # magenta line = long axis of that box (consistent direction across shadows = real)
     overlay2 = img.copy()
-    for cnt in contours:
-        if cv.contourArea(cnt) < 300:
+    for cnt in shadow_contours:
+        area = cv.contourArea(cnt)
+        perimeter = cv.arcLength(cnt, closed=True)
+        if area < MIN_AREA or perimeter < MIN_PERIMETER:
+            continue
+        hull = cv.convexHull(cnt)
+        if cv.contourArea(hull) < 1.0 or (area / cv.contourArea(hull)) < 0.5:
+            continue
+        if cnt.reshape(-1, 2).shape[0] < 5:
             continue
         rect = cv.minAreaRect(cnt)
-        center, (w_r, h_r), angle = rect
-        cx, cy = int(center[0]), int(center[1])
-        angle_rad = np.radians(angle if w_r >= h_r else angle + 90)
-        length = int(max(w_r, h_r) * 0.5)
-        dx, dy = int(length * np.cos(angle_rad)), int(length * np.sin(angle_rad))
-        cv.line(overlay2, (cx - dx, cy - dy), (cx + dx, cy + dy), (0, 165, 255), 2)
-        cv.circle(overlay2, (cx, cy), 4, (0, 165, 255), -1)
+        (cx, cy), (w_r, h_r), angle = rect
+        major, minor = max(w_r, h_r), min(w_r, h_r)
+        if minor < 1.0 or (major / minor) < MIN_ELONGATION:
+            continue
+        box = np.int32(cv.boxPoints(rect))
+        cv.polylines(overlay2, [box], isClosed=True, color=(255, 255, 0), thickness=2)
+        angle_norm = (angle + 90.0) % 180.0 if h_r > w_r else angle % 180.0
+        theta = np.deg2rad(angle_norm)
+        half_len = int(major / 2)
+        dx, dy = int(np.cos(theta) * half_len), int(np.sin(theta) * half_len)
+        cv.line(overlay2, (int(cx) - dx, int(cy) - dy), (int(cx) + dx, int(cy) + dy), (255, 0, 255), 2)
     viz2 = _encode_b64(_resize_for_web(overlay2))
 
     return viz1, viz2

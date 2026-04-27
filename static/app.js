@@ -10,10 +10,23 @@ const loadingIndicator = document.getElementById("loadingIndicator");
 // clicking an evidence image opens it up and shows a full-screen overlay
 const imageViewer = document.createElement("div");
 imageViewer.id = "imageViewer";
-imageViewer.innerHTML = '<img id="imageViewer-img" alt=""><button id="imageViewer-close">&times;</button>';
+imageViewer.innerHTML = '<img id="imageViewer-img" alt=""><button id="imageViewer-close">&times;</button><p id="imageViewer-hint">Click image to zoom</p>';
 document.body.appendChild(imageViewer);
 
 const imageViewerImg = document.getElementById("imageViewer-img");
+const imageViewerHint = document.getElementById("imageViewer-hint");
+
+let zoomModeActive = false;
+
+function setZoomMode(active) {
+    zoomModeActive = active;
+    imageViewerImg.classList.toggle("zoom-active", active);
+    imageViewerHint.textContent = active ? "Click image to zoom out" : "Click image to zoom in";
+    if (!active) {
+        imageViewerImg.style.transform = "scale(1)";
+        imageViewerImg.style.transformOrigin = "center center";
+    }
+}
 
 function openImageViewer(src) {
     imageViewerImg.src = src;
@@ -23,11 +36,34 @@ function openImageViewer(src) {
 function closeImageViewer() {
     imageViewer.classList.remove("active");
     imageViewerImg.src = "";
+    setZoomMode(false);
 }
 
 document.getElementById("imageViewer-close").addEventListener("click", closeImageViewer);
 imageViewer.addEventListener("click", (e) => { if (e.target === imageViewer) closeImageViewer(); });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeImageViewer(); });
+
+// click image to toggle zoom mode on/off
+imageViewerImg.addEventListener("click", (e) => {
+    e.stopPropagation();
+    setZoomMode(!zoomModeActive);
+});
+
+// while zoom mode is active, follow cursor and scale at that origin
+imageViewerImg.addEventListener("mousemove", (e) => {
+    if (!zoomModeActive) return;
+    const rect = imageViewerImg.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * 100;
+    const y = ((e.clientY - rect.top) / rect.height) * 100;
+    imageViewerImg.style.transformOrigin = `${x}% ${y}%`;
+    imageViewerImg.style.transform = "scale(2.5)";
+});
+
+imageViewerImg.addEventListener("mouseleave", () => {
+    if (!zoomModeActive) return;
+    imageViewerImg.style.transform = "scale(1)";
+    imageViewerImg.style.transformOrigin = "center center";
+});
 
 // delegate clicks on evidence images to open the full-screen viewer
 resultBox.addEventListener("click", (e) => {
@@ -183,8 +219,8 @@ const evidenceCaptions = {
         ratio_heatmap: 'Shadow brightness ratio map - each region is colored by how dark it is relative to its surroundings. Similar colors across all shadows mean a consistent light source; varied colors suggest different sources.'
     },
     depth: {
-        contour_overlay: 'Shadow edge contours on grayscale. Real shadows from one light source have consistent edge softness (penumbra) throughout.',
-        orientation_overlay: 'Long-axis orientation of each shadow. Lines pointing in roughly the same direction suggest one light source; scattered directions suggest composited shadows.'
+        contour_overlay: 'Green dots mark the shadow boundary locations sampled to measure penumbra width. The penumbra is the outer edge of a shadow where light gradually transitions to dark. The system checks each marked point for that gradual fade vs. a sharp cutoff.',
+        orientation_overlay: 'Cyan box = tightest fitted rectangle around each shadow (box proportions show the elongation ratio). Magenta line = long axis. Consistent box shapes and parallel axes suggest one light source; mismatched shapes or scattered axes suggest composited shadows.'
     }
 };
 
