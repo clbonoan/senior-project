@@ -501,10 +501,11 @@ def final_shadow_mask(img_bgr):
 
     return (final_mask * 255).astype(np.uint8)
 
-# comment main out if not testing shadow_mask.py only
+#comment main out if not testing shadow_mask.py only
 # if __name__ == "__main__":
-#     # initial mask
-#     initial_mask, img = detect_shadows_skimage("data/images/19.jpg")
+#     # load image first — detect_shadows_skimage expects a numpy array, not a path
+#     img = cv2.imread("data/images/4.jpg")
+#     initial_mask, img = detect_shadows_skimage(img)
 
 #     # second refinement
 #     seed_mask = refine_shadow_mask_local(
