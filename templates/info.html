@@ -135,6 +135,41 @@
         </div>
       </div>
 
+      <div class="faq-item" data-category="using-the-tool">
+        <button class="faq-question">
+          <span>What does 'Inconclusive' mean?</span>
+          <span class="arrow">&#9660;</span>
+        </button>
+        <div class="faq-answer">
+          <p>
+            Inconclusive means the system could not reach a consensus verdict. It 
+            happens in two situations: the modules that cast votes split evenly 
+            between Real and Tampered (a tie), or every module returned a borderline 
+            score and no votes were cast at all. 
+            <br>
+            This is different from N/A, which is a per-module state saying one specific 
+            module did not produce a result. Inconclusive is the final consensus when 
+            the overall picture is too ambiguous to call.
+          </p>
+        </div>
+      </div>
+
+      <div class="faq-item" data-category="using-the-tool">
+        <button class="faq-question">
+          <span>Is there a file size limit?</span>
+          <span class="arrow">&#9660;</span>
+        </button>
+        <div class="faq-answer">
+          <p>
+            Yes. Very large images may exceed the server's upload size limit and 
+            return an error. If this happens, you will see a message indicating the 
+            server did not return a valid response. Try reducing the file size by 
+            resizing or re-exporting the image at a lower resolution before uploading.
+          </p>
+        </div>
+      </div>
+
+
       <!-- HOW IT WORKS CATEGORY -->
       <div class="faq-item" data-category="how-it-works">
         <button class="faq-question">
@@ -234,14 +269,35 @@
         </button>
         <div class="faq-answer">
           <p>
-            A tie is treated as "real" because this tool is designed as supporting
-            evidence, not a final verdict. Defaulting to real on uncertainty avoids
-            falsely accusing an authentic image. A false positive in a planning or
-            forensics context is a serious accusation; a missed flag still requires
-            a human reviewer to investigate.
+            Initially, tie was treated as Real because this tool is designed as supporting
+            evidence, not a final verdict. A tied vote now returns Inconclusive rather than 
+            defaulting to Real because a tie between modules means evidence is genuinely 
+            split. Forcing a Real verdict would hide that ambuguity, but that makes 
+            it less honest. Inconclusive is the better answer: the system does not 
+            have enough agreement to make a call, and a human reviewer should take a 
+            closer look.
           </p>
         </div>
       </div>
+
+      <div class="faq-item" data-category="how-it-works">
+        <button class="faq-question">
+          <span>What does the mean score shown under an Inconclusive result mean?</span>
+          <span class="arrow">&#9660;</span>
+        </button>
+        <div class="faq-answer">
+          <p>
+            When the result is Inconclusive, the system shows the mean rule-based 
+            score across all modules that produced a valid number, along with a "leans 
+            suspicious" or "leans real" note. This is not a verdict — it is a soft 
+            indicator of which direction the evidence tilts when the modules cannot 
+            agree. It is most useful as a prompt for where to focus a manual review, 
+            not as a confidence score.
+          </p>
+        </div>
+      </div>
+
+
 
       <!-- LIMITATIONS CATEGORY -->
       <div class="faq-item" data-category="limitations">
