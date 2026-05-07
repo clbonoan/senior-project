@@ -678,30 +678,42 @@ def extract_features(
 # -------------------------------------------------- 
 def calculate_light_tamper_score(ml_features):
     '''
-    compute tamper score based on the following (can be grabbed from ML features):
-    - build mask from texture.py
-    - extract features per-shadow
-    - similarity = cosine(Z-score features), use MEDIAN
-    - score = 1 - median_similarity (between 0 (real) and 1 (tampered))
-    return: 
-    score - float (0-1), rule-based tamper score
-    ml_features: dict of features for ML
+    rule-based tamper score (0.0 = likely real, 1.0 = likely tampered)
+    based on how consistent shadow brightness is across the whole image
+
+    idea:
+    - in a real photo, all shadows come from the same light source, so each
+      shadow blocks roughly the same fraction of light — the ratio of shadow
+      brightness to nearby lit-area brightness should be similar across all shadows
+    - in a tampered photo, a shadow copied from a different image will have a
+      different brightness ratio than the real shadows in the scene
+
+    how it is measured:
+    - for each shadow, compute: log_ratio = log(shadow brightness) - log(lit brightness)
+    - using log makes the ratio scale-independent and handles different exposure levels
+    - IQR (interquartile range) = spread of the middle 50% of these ratios across all shadows
+    - small IQR → all shadows have similar ratios → consistent light source → likely real
+    - large IQR → ratios vary a lot → shadows from different light sources → likely tampered
+
+    thresholds:
+    - IQR <= 0.20 → consistent → score 0.0 (not suspicious)
+    - IQR >= 0.80 → very inconsistent → score 1.0 (suspicious)
     '''
     usable = ml_features.get("num_components_usable", 0)
 
     if usable < 2:
+        return 0.0  # need at least 2 shadows to compare consistency
+
+    iqr = float(ml_features.get("sr_log_ratio_iqr", 0.0))
+
+    # linearly map IQR to score
+    # IQR of 0.20 means the middle 50% of shadow ratios differ by a factor of e^0.20 ≈ 1.22
+    # IQR of 0.80 means the middle 50% of shadow ratios differ by a factor of e^0.80 ≈ 2.23
+    if iqr <= 0.20:
         return 0.0
-
-    # use IQR for scoring since real shadows typically have IQR < 0.5
-    iqr = ml_features.get("sr_log_ratio_iqr", 0.0)
-    # Scale: IQR 0.3 -> score 0.12, IQR 0.8 -> score 0.32, IQR 2.5 -> score 0.6
-    score = float(np.clip(iqr / 2.5, 0.0, 1.0))
-
-
-    # print(f"Found {int(num_shadows-1)} shadows, {usable} usable")
-    # print(f"Rule-Based Tamper Score: {score:.4f}")
-
-    return score
+    if iqr >= 0.80:
+        return 1.0
+    return (iqr - 0.20) / (0.80 - 0.20)
 
 # ---------------------------------------------------
 # EXECUTE IMAGE ANALYSIS

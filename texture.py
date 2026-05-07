@@ -372,6 +372,9 @@ def patch_luminance_std(L8_u8, mask_u8=None, patch_size=32, stride=None, prefix=
         f"{prefix}_outlier_frac": outlier_frac,
     }
 
+# DISABLED: clone_detection is not currently used in the pipeline.
+# kept here for reference in case it is re-enabled later.
+# to re-enable: uncomment the call in analyze_texture and add clone_score back to calculate_texture_tamper_score
 def clone_detection(L8_u8, patch_size=40, max_patches=100, similar_thresh=0.95):
     '''
     sample patches throughout the image and compare them to each other; if two patches
@@ -757,95 +760,69 @@ def extract_features(
 # ----------------------------------------------------------
 def calculate_texture_tamper_score(chi2_list, features=None):
     '''
-    rule-based tamper score between 0 to 1 based on texture comparisons of each 
-    pair of patches for each shadow component:
-    0.0 = likely real shadows (textures match)
-    1.0 = likely fake shadows (textures differ strongly)
+    rule-based tamper score (0.0 = likely real, 1.0 = likely tampered)
+    based on two signals that match the module's two analysis methods:
 
-    considering:
-    - how different the textures are (chi-squared distances for similarity)
-    - how many suspicious shadow regions there are
-    - consistency across all shadows
+    1. cross-boundary texture — chi-squared distance (60%):
+       for each shadow, we compare LBP texture histograms from a patch just inside
+       the shadow boundary vs a patch just outside it
+       - real: same surface on both sides → histograms match → low chi2
+       - fake: shadow placed on a different surface → histograms differ → high chi2
+
+    2. LBP texture — entropy gap (40%):
+       we compare texture complexity (LBP entropy) inside vs outside the shadow
+       using overlapping patches across the whole image
+       - real: similar complexity on both sides (same material, just darker)
+       - fake: complexity differs because the shadow was added over different content
     '''
     if features is None:
         features = {}
 
-    def clamp(x):
-        return max(0.0, min(1.0, float(x)))
-
     def linear_score(x, low, high):
+        # returns 0.0 at x <= low, 1.0 at x >= high, linear in between
         if x <= low:
             return 0.0
         if x >= high:
             return 1.0
-        return (x - low) / (high - low + 1e-12)
-    
-    # TEXTURE MISMATCH SCORE FROM CHI2 LIST
+        return (x - low) / (high - low)
+
+    # ----------------------------------
+    # signal 1: cross-boundary texture (chi2)
+    # ----------------------------------
     if len(chi2_list) == 0:
-        texture_score = 0.0  # no shadows are found so assume real
+        cross_boundary_score = 0.0  # no shadows found — nothing suspicious to report
     else:
         chi2_arr = np.asarray(chi2_list, dtype=np.float32)
 
+        # average texture mismatch across all shadow regions
+        # real: mean < 0.15 (textures match well on the same surface)
+        # suspicious: mean > 0.40 (textures clearly come from different surfaces)
         mean_chi2 = float(np.mean(chi2_arr))
-        max_chi2 = float(np.max(chi2_arr))
-        std_chi2 = float(np.std(chi2_arr))
-        pct_suspicious = float(np.mean(chi2_arr > 0.30))
+        score_mean = linear_score(mean_chi2, 0.15, 0.40)
 
-        score_mean = linear_score(mean_chi2, 0.10, 0.30)
-        score_max = linear_score(max_chi2, 0.10, 0.30)
-        score_std = linear_score(std_chi2, 0.05, 0.15)
-        score_pct = pct_suspicious
+        # fraction of shadow regions where chi2 is high (individual texture mismatch)
+        # real: < 10% of regions are suspicious
+        # tampered: > 50% of regions are suspicious
+        pct_suspicious = float(np.mean(chi2_arr > 0.35))
+        score_pct = linear_score(pct_suspicious, 0.10, 0.50)
 
-        texture_score = (
-            0.40 * score_mean +
-            0.25 * score_max +
-            0.15 * score_std +
-            0.20 * score_pct
-        )
+        cross_boundary_score = 0.60 * score_mean + 0.40 * score_pct
 
-    # ENTROPY ANOMALY SCORE
-    # use the medium patch size=40 for the rule-based score
-    # this keeps the computed tamper score simple while still using multi-scale for ML
+    # ----------------------------------
+    # signal 2: LBP texture (entropy gap)
+    # ----------------------------------
+    # entropy measures how much texture detail a patch has (derived from the LBP map)
+    # gap = difference in average entropy between patches inside vs outside the shadow
+    # real: gap is small — same surface on both sides, same texture complexity
+    # suspicious: gap is large — shadow was placed over a region with very different detail
+    # gap <= 0.15: similar complexity on both sides → not suspicious
+    # gap >= 0.60: very different complexity → suspicious
     entropy_gap = float(features.get("patch_entropy_s40_in_out_gap", 0.0))
-    entropy_outlier_frac = float(features.get("patch_entropy_s40_outlier_frac", 0.0))
-    entropy_std = float(features.get("patch_entropy_s40_std", 0.0))
+    lbp_score = linear_score(entropy_gap, 0.15, 0.60)
 
-    score_entropy_gap = linear_score(entropy_gap, 0.15, 0.60)
-    score_entropy_outliers = linear_score(entropy_outlier_frac, 0.05, 0.25)
-    score_entropy_std = linear_score(entropy_std, 0.10, 0.50)
+    tamper_score = 0.60 * cross_boundary_score + 0.40 * lbp_score
 
-    entropy_score = (
-        0.50 * score_entropy_gap +
-        0.30 * score_entropy_outliers +
-        0.20 * score_entropy_std
-    )
-
-    # CLONE STAMP SUSPICION SCORE
-    clone_similar_max = float(features.get("clone_similar_max", 0.0))
-    clone_similar_count = float(features.get("clone_similar_count", 0.0))
-    clone_similar_frac = float(features.get("clone_similar_frac", 0.0))
-
-    # high cosine similarity among distant patches is suspicious;
-    # cosine similarity close to 1 signifies pixel data has identical color, 
-    # texture, and orientation as the source
-    score_clone_max = linear_score(clone_similar_max, 0.92, 0.99)
-    score_clone_count = linear_score(clone_similar_count, 1.0, 5.0)
-    score_clone_frac = linear_score(clone_similar_frac, 0.02, 0.12)
-
-    clone_score = (
-        0.35 * score_clone_max +
-        0.25 * score_clone_count +
-        0.40 * score_clone_frac
-    )
-
-    # final combined score
-    tamper_score = (
-        0.55 * texture_score +
-        0.20 * entropy_score +
-        0.25 * clone_score
-    )
-
-    return clamp(tamper_score)
+    return max(0.0, min(1.0, tamper_score))
 
 
 # ----------------------------------------------------------

@@ -1,6 +1,7 @@
 # Third Feature:
 # - analyzing shadows through penumbra hardness (edge width)
 # - elongation consistency (shadow shape)
+# - orientation
 
 import cv2
 import numpy as np
@@ -661,55 +662,55 @@ def extract_features(widths, contrasts, elongation_ratios, orientation_angles):
 # ----------------------------------------------------------
 def calculate_depth_tamper_score(ml_features):
     '''
-    tamper score based on penumbra hardness and elongation consistency
+    rule-based tamper score (0.0 = likely real, 1.0 = likely tampered)
+    based on three shadow geometry signals:
 
-    score components:
-    - penumbra score (50% when shape features available, 100% otherwise):
-        - std dev (65%): how much edge softness varies across all shadow boundaries
-        - CV (35%): normalized variability, catches cases where std is inflated
-          by large absolute widths
-    - elongation score (25% when available):
-        - CV of per-shadow major/minor axis ratios; real scenes have consistent
-          elongation because the sun elevation angle is fixed
-    - orientation score (25% when available):
-        - circular std of per-shadow long-axis angles; real shadows share the same
-          sun azimuth so their axes cluster tightly; a composited shadow from a
-          different photo has a noticeably different axis
+    1. penumbra consistency (50%): real shadows from one light source have similar
+       edge softness; composited shadows mix hard and soft edges
+    2. elongation consistency (25%): real shadows share the same sun elevation,
+       so their major/minor axis ratios cluster together
+    3. orientation consistency (25%): real shadows all point the same direction
+       because the sun azimuth is fixed; a composited shadow from a different
+       photo will have a noticeably different axis angle
 
-    weights fall back gracefully:
-    - both shape features available: penumbra 50% + elongation 25% + orientation 25%
-    - neither available (< 2 elongated shadows): penumbra 100%
-
-    real photos have consistent penumbra, elongation, and orientation from one light
-    source; composited photos mix shadows with different edge softness and axes
+    fallback weights when shape data is limited:
+    - both elongation and orientation available: 50% + 25% + 25%
+    - only elongation available: 65% penumbra + 35% elongation
+    - neither available (< 2 elongated shadows): 100% penumbra
     '''
+
+    def linear_score(x, low, high):
+        # 0.0 at x <= low, 1.0 at x >= high, linear in between
+        if x <= low:
+            return 0.0
+        if x >= high:
+            return 1.0
+        return (x - low) / (high - low)
+
     # ---------------------------
-    # penumbra hardness score
+    # penumbra consistency score
     # ---------------------------
-    width_std = float(ml_features.get("edge_width_std", 0.0))
-    width_cv  = float(ml_features.get("edge_width_cv",  0.0))
+    # CV = std / mean — measures how much penumbra width varies relative to its average
+    # this is better than raw std because it is not affected by image resolution or
+    # whether the scene has naturally wide or narrow penumbrae
+    #   CV <= 0.5 → widths are tightly clustered → one light source → not suspicious
+    #   CV >= 1.2 → widths vary wildly → mixed light sources → suspicious
+    width_cv = float(ml_features.get("edge_width_cv", 0.0))
+    num_measurements = int(ml_features.get("num_measurements", 0))
 
-    # std score: 0 at std<=5px, 1 at std>=10px
-    if width_std <= 5.0:
-        score_std = 0.0
-    elif width_std >= 10.0:
-        score_std = 1.0
-    else:
-        score_std = (width_std - 5.0) / 5.0
+    penumbra_score = linear_score(width_cv, 0.5, 1.2)
 
-    # CV score: 0 at cv<=0.8, 1 at cv>=1.5
-    if width_cv <= 0.8:
-        score_cv = 0.0
-    elif width_cv >= 1.5:
-        score_cv = 1.0
-    else:
-        score_cv = (width_cv - 0.8) / 0.7
-
-    penumbra_score = 0.65 * score_std + 0.35 * score_cv
+    # scale down when few measurements are available because the CV is noisy
+    # with only a handful of samples
+    confidence = min(1.0, num_measurements / 15.0)
+    penumbra_score *= confidence
 
     # ---------------------------
     # elongation consistency score
     # ---------------------------
+    # CV of major/minor axis ratios across all elongated shadows:
+    #   CV <= 0.25 → ratios cluster together → same sun elevation → not suspicious
+    #   CV >= 0.55 → ratios spread widely → inconsistent elevation → suspicious
     elongation_cv = float(ml_features.get("elongation_cv", 0.0))
     elongation_samples = int(ml_features.get("elongation_samples", 0))
 
@@ -717,46 +718,30 @@ def calculate_depth_tamper_score(ml_features):
         # not enough elongated shadows — fall back to penumbra only
         return max(0.0, min(1.0, penumbra_score))
 
-    # CV (coefficient of variation) = std / mean of the elongation ratios across all shadows
-    # it measures how spread out the ratios are relative to their average:
-    #   CV <= 0.3 → ratios are tightly clustered → consistent elongation → score 0.0 (not suspicious)
-    #   CV >= 0.6 → ratios are widely spread → inconsistent elongation → score 1.0 (suspicious)
-    #   between 0.3 and 0.6 → linearly interpolated
-    # variation is expected (lamp post vs fire hydrant cast different length shadows),
-    # but extreme spread suggests shadows from different sun elevations were mixed together
-    if elongation_cv <= 0.3:
-        elongation_score = 0.0
-    elif elongation_cv >= 0.6:
-        elongation_score = 1.0
-    else:
-        elongation_score = (elongation_cv - 0.3) / 0.3
+    elongation_score = linear_score(elongation_cv, 0.25, 0.55)
 
     # ---------------------------
     # orientation consistency score
     # ---------------------------
+    # circular std of long-axis angles:
+    #   std <= 15° → axes point roughly the same way → real scene → not suspicious
+    #   std >= 25° → axes point in clearly different directions → suspicious
     orientation_std = float(ml_features.get("orientation_std_deg", 0.0))
-    orientation_samples = int(ml_features.get("orientation_samples",   0))
+    orientation_samples = int(ml_features.get("orientation_samples", 0))
 
     if orientation_samples < 2:
-        tamper_score = 0.60 * penumbra_score + 0.40 * elongation_score
+        # no orientation data — weight penumbra more
+        tamper_score = 0.65 * penumbra_score + 0.35 * elongation_score
     else:
-        # circular std of long-axis angles measures how much the shadow axes vary in direction:
-        #   std <= 15° → axes point roughly the same way → same sun azimuth → score 0.0 (not suspicious)
-        #   std >= 30° → axes point in clearly different directions → score 1.0 (suspicious)
-        #   between 15° and 30° → linearly interpolated
-        # a composited shadow from a different photo will have a noticeably different axis angle
-        if orientation_std <= 15.0:
-            orientation_score = 0.0
-        elif orientation_std >= 30.0:
-            orientation_score = 1.0
-        else:
-            orientation_score = (orientation_std - 15.0) / 15.0
+        orientation_score = linear_score(orientation_std, 15.0, 25.0)
 
-        tamper_score = (0.50 * penumbra_score
-                        + 0.25 * elongation_score
-                        + 0.25 * orientation_score)
+        tamper_score = (
+            0.50 * penumbra_score +
+            0.25 * elongation_score +
+            0.25 * orientation_score
+        )
 
-    return max(0.0, min(1.0, tamper_score))    
+    return max(0.0, min(1.0, tamper_score))
 
 # ----------------------------------------------------------
 # VISUALIZATION
@@ -1012,7 +997,7 @@ def analyze_depth(image_input, visualize=True, sample_step=4, compute_tamper_sco
 # ----------------------------------------------------------
 if __name__ == "__main__":
     # testing visuals before analyzing
-    test_path = "data/images/2-edited.jpg"
+    test_path = "data/images/65-edited.jpg"
 
     img = cv2.imread(test_path)
     if img is None:
