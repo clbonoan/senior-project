@@ -1,6 +1,6 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
-  
+
 <head>
   <title>Information</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
@@ -33,32 +33,110 @@
   <div class="text-container">
     <br>
     <p id="info-text">
-    This project focuses on detecting image tampering using shadow-based feature 
-    analysis. It targets urban infrastructure imagery, where ground-level images are 
+    This project focuses on detecting image tampering using shadow-based feature
+    analysis. It targets urban infrastructure imagery, where ground-level images are
     commonly used to monitor development progress and inform planning decisions.
     <br>
     <br>
-    The system uses pixel-based algorithms to extract features related to texture, 
+    The system uses pixel-based algorithms to extract features related to texture,
     lighting, and depth, and it evaluates them using a dual-path approach: a rule-based
-    method that applies threshold-driven logic and a machine learning pipeline that 
+    method that applies threshold-driven logic and a machine learning pipeline that
     learns patterns from the same engineered features.
     <br>
     <br>
     A web application allows users to upload images and receive a tampering likelihood
-    score with supporting analysis details. By combining explainable heuristics with 
+    score with supporting analysis details. By combining explainable heuristics with
     data-driven models, we aim to improve the reliability and authenticity of
     visual data used in urban planning and reporting.
     </p>
 
     <br>
+  </div>
 
-    <hr>
-    <h1 class="titles">FAQ</h1>
-    <br>
+  <br>
+
+  <h1 class="titles">FAQ</h1>
+  <div class="text-container">
+
+    <div id="faq-categories">
+      <button class="faq-category-btn active" data-category="using-the-tool">Using the Tool</button>
+      <button class="faq-category-btn" data-category="how-it-works">How It Works</button>
+      <button class="faq-category-btn" data-category="limitations">Limitations</button>
+      <button class="faq-category-btn" data-category="design-choices">Design Choices</button>
+      <button class="faq-category-btn" data-category="future-work">Future Work</button>
+    </div>
+
     <div id="faq-container">
 
-      <!-- accordion style faq questions -->
-      <div class="faq-item">
+      <!-- USING THE TOOL CATEGORY -->
+      <div class="faq-item" data-category="using-the-tool">
+        <button class="faq-question">
+          <span>What kind of images should I use?</span>
+          <span class="arrow">&#9660;</span>
+        </button>
+        <div class="faq-answer">
+          <p>
+            Urban infrastructure related images with visible shadows and clear
+            lighting conditions work best.
+          </p>
+        </div>
+      </div>
+
+      <div class="faq-item" data-category="using-the-tool">
+        <button class="faq-question">
+          <span>What file formats are supported?</span>
+          <span class="arrow">&#9660;</span>
+        </button>
+        <div class="faq-answer">
+          <p>
+            Currently only JPEG and JPG files are accepted.
+          </p>
+        </div>
+      </div>
+
+      <div class="faq-item" data-category="using-the-tool">
+        <button class="faq-question">
+          <span>How long does the analysis take?</span>
+          <span class="arrow">&#9660;</span>
+        </button>
+        <div class="faq-answer">
+          <p>
+            Analysis may take up to a minute. The system is running three separate
+            feature extraction pipelines (texture, lighting, and depth) simultaneously,
+            so processing time can vary with image size and complexity.
+          </p>
+        </div>
+      </div>
+
+      <div class="faq-item" data-category="using-the-tool">
+        <button class="faq-question">
+          <span>What does N/A mean in the results?</span>
+          <span class="arrow">&#9660;</span>
+        </button>
+        <div class="faq-answer">
+          <p>
+            N/A appears when a module's score fell in the uncertainty zone (between 0.45
+            and 0.65) or when an error occurred during that module's analysis. It means
+            that the module did not cast a vote, not that the image is safe.
+          </p>
+        </div>
+      </div>
+
+      <div class="faq-item" data-category="using-the-tool">
+        <button class="faq-question">
+          <span>Is my uploaded image stored or saved?</span>
+          <span class="arrow">&#9660;</span>
+        </button>
+        <div class="faq-answer">
+          <p>
+            No, images are processed in memory and discarded after analysis. No
+            images are saved.
+          </p>
+        </div>
+      </div>
+
+      <!-- HOW IT WORKS CATEGORY -->
+      <div class="faq-item" data-category="how-it-works">
         <button class="faq-question">
           <span>How does the system detect tampering?</span>
           <span class="arrow">&#9660;</span>
@@ -71,29 +149,344 @@
         </div>
       </div>
 
-      <div class="faq-item">
+      <div class="faq-item" data-category="how-it-works">
         <button class="faq-question">
-          <span>What kind of images should I use?</span>
+          <span>What do the score numbers mean?</span>
           <span class="arrow">&#9660;</span>
         </button>
         <div class="faq-answer">
           <p>
-            Urban infrastructure related images with visible shadows and clear 
-            lighting conditions work best.
+            Each module (texture, lighting, and depth) outputs a score between 0 and
+            1. Scores at or above 0.65 are flagged as likely tampered, scores at or below
+            0.45 are considered likely real, and anything in between falls into an
+            uncertainty zone where no vote is cast.
           </p>
         </div>
       </div>
 
-      <div class="faq-item">
+      <div class="faq-item" data-category="how-it-works">
+        <button class="faq-question">
+          <span>What is the difference between the Rule-Based and ML results?</span>
+          <span class="arrow">&#9660;</span>
+        </button>
+        <div class="faq-answer">
+          <p>
+            The rule-based method applies hand-crafted thresholds to shadow features
+            and uses a majority vote. The ML stacked model feeds probabilities from three
+            learned module models into a final classifier. Seeing both side-by-side lets
+            you compare how each approach interprets the same image and evidence.
+          </p>
+        </div>
+      </div>
+
+      <div class="faq-item" data-category="how-it-works">
+        <button class="faq-question">
+          <span>What if the two methods disagree?</span>
+          <span class="arrow">&#9660;</span>
+        </button>
+        <div class="faq-answer">
+          <p>
+            Disagreement between rule-based and ML results is normal and actually
+            informative. It signals an ambiguous or borderline case. Neither result
+            should be treated as a final verdict on its own.
+          </p>
+        </div>
+      </div>
+
+      <div class="faq-item" data-category="how-it-works">
+        <button class="faq-question">
+          <span>What are the supporting evidence images showing?</span>
+          <span class="arrow">&#9660;</span>
+        </button>
+        <div class="faq-answer">
+          <p>
+            The evidence section visualizes what the system examined and can be
+            further inspected by the user.
+            For texture: detected shadow regions and LBP texture patterns.
+            For lighting: shadow components colored by light source and a brightness
+            ratio heatmap.
+            For depth: boundary sampling points for penumbra measurement and elongation
+            bounding boxes.
+            Only modules flagged as suspicious will show evidence images.
+          </p>
+        </div>
+      </div>
+
+      <div class="faq-item" data-category="how-it-works">
+        <button class="faq-question">
+          <span>What counts as "tampering" in this context?</span>
+          <span class="arrow">&#9660;</span>
+        </button>
+        <div class="faq-answer">
+          <p>
+            The system is specifically designed to detect shadow inconsistencies
+            that suggest content has been added, removed, or composited into an image.
+            For example, a pasted object whose shadow does not match the scene's
+            lighting direction or softness.
+          </p>
+        </div>
+      </div>
+
+      <div class="faq-item" data-category="how-it-works">
+        <button class="faq-question">
+          <span>Why does the rule-based method default to "real" on a tie?</span>
+          <span class="arrow">&#9660;</span>
+        </button>
+        <div class="faq-answer">
+          <p>
+            A tie is treated as "real" because this tool is designed as supporting
+            evidence, not a final verdict. Defaulting to real on uncertainty avoids
+            falsely accusing an authentic image. A false positive in a planning or
+            forensics context is a serious accusation; a missed flag still requires
+            a human reviewer to investigate.
+          </p>
+        </div>
+      </div>
+
+      <!-- LIMITATIONS CATEGORY -->
+      <div class="faq-item" data-category="limitations">
         <button class="faq-question">
           <span>Do the results guarantee an image is fake?</span>
           <span class="arrow">&#9660;</span>
         </button>
         <div class="faq-answer">
           <p>
-            No, these results are an estimate based on the detected shadow evidence 
+            No, these results are an estimate based on the detected shadow evidence
             and should only be used as a supporting analysis rather than definitive
             proof.
+          </p>
+        </div>
+      </div>
+
+      <div class="faq-item" data-category="limitations">
+        <button class="faq-question">
+          <span>Why does the system only work on images with shadows?</span>
+          <span class="arrow">&#9660;</span>
+        </button>
+        <div class="faq-answer">
+          <p>
+            The entire pipeline depends on detecting shadow regions first. If no
+            shadows are found, all three modules fall back to zero or N/A scores.
+            A tampered region that casts no shadow, or an image without clear shadows,
+            cannot be meaningfully analyzed.
+          </p>
+        </div>
+      </div>
+
+      <div class="faq-item" data-category="limitations">
+        <button class="faq-question">
+          <span>Can the system detect all types of image tampering?</span>
+          <span class="arrow">&#9660;</span>
+        </button>
+        <div class="faq-answer">
+          <p>
+            No. The system is specifically designed to catch shadow inconsistencies
+            from compositing or cloning edits. It will not detect tampering that does not
+            disturb shadows, such as brightness adjustments, color grading, object
+            removal from shadow-free areas, metadata changes, or AI-generated content.
+          </p>
+        </div>
+      </div>
+
+      <div class="faq-item" data-category="limitations">
+        <button class="faq-question">
+          <span>Can the system be fooled?</span>
+          <span class="arrow">&#9660;</span>
+        </button>
+        <div class="faq-answer">
+          <p>
+            Yes, sophisticated compositing that carefully matches shadow texture,
+            lighting ratios, and penumbra characteristics may go undetected. The system
+            should not be used as a definitive detector.
+          </p>
+        </div>
+      </div>
+
+      <div class="faq-item" data-category="limitations">
+        <button class="faq-question">
+          <span>What happens when the shadow mask is wrong?</span>
+          <span class="arrow">&#9660;</span>
+        </button>
+        <div class="faq-answer">
+          <p>
+            All three modules are built on top of the shadow masking step. If the mask
+            misclassifies a region, treating a dark road surface as a shadow, or missing
+            a faint shadow, the downstream analysis works from incorrect input. This is
+            the single most impactful point of failure in the pipeline.
+          </p>
+        </div>
+      </div>
+
+      <div class="faq-item" data-category="limitations">
+        <button class="faq-question">
+          <span>Why does the lighting module sometimes return N/A even when shadows are visible?</span>
+          <span class="arrow">&#9660;</span>
+        </button>
+        <div class="faq-answer">
+          <p>
+            The lighting consistency check needs at least two separate, usable shadow
+            regions to compare against each other. Images with only one shadow or where
+            only one shadow passes the quality filters cannot produce a lighting vote.
+          </p>
+        </div>
+      </div>
+
+      <div class="faq-item" data-category="limitations">
+        <button class="faq-question">
+          <span>How accurate is the system?</span>
+          <span class="arrow">&#9660;</span>
+        </button>
+        <div class="faq-answer">
+          <p>
+            The system is a research prototype trained on a limited urban infrastructure
+            dataset. Accuracy is not guaranteed on all image types, and results should be
+            treated as supporting analysis rather than definitive proof.
+          </p>
+        </div>
+      </div>
+
+      <!-- DESIGN CHOICES CATEGORY -->
+      <div class="faq-item" data-category="design-choices">
+        <button class="faq-question">
+          <span>Why use handcrafted shadow features instead of a deep learning model?</span>
+          <span class="arrow">&#9660;</span>
+        </button>
+        <div class="faq-answer">
+          <p>
+            Handcrafted features (LBP texture, brightness log-ratios, penumbra widths,
+            elongation ratios) are grounded in the physics of how light and shadows work.
+            This makes the system interpretable: you can point to a specific shadow
+            boundary and explain why a score was triggered. A deep learning model learns
+            features that are harder to explain, which matters when the output is intended
+            to support human decision-making rather than replace it.
+          </p>
+        </div>
+      </div>
+
+      <div class="faq-item" data-category="design-choices">
+        <button class="faq-question">
+          <span>Why run both rule-based and ML results side by side?</span>
+          <span class="arrow">&#9660;</span>
+        </button>
+        <div class="faq-answer">
+          <p>
+            The two methods make different kinds of errors. The rule-based method applies
+            fixed thresholds that are easy to audit but may miss subtle patterns. The ML
+            model can generalize from training data but is less transparent. Showing both
+            lets users see where the methods agree (increasing confidence) and where
+            they disagree, signaling ambiguity that should be further inspected.
+          </p>
+        </div>
+      </div>
+
+      <div class="faq-item" data-category="design-choices">
+        <button class="faq-question">
+          <span>How reliable is the ML model given the training dataset size?</span>
+          <span class="arrow">&#9660;</span>
+        </button>
+        <div class="faq-answer">
+          <p>
+            The stacked model was trained on a limited set of urban infrastructure images
+            built for this project. Small training sets mean the model may not generalize
+            well to unusual lighting conditions, different camera types, or tampering styles 
+            it has not seen. Results should be treated as supporting evidence accordingly.
+          </p>
+        </div>
+      </div>
+
+      <div class="faq-item" data-category="design-choices">
+        <button class="faq-question">
+          <span>How does human judgment factor into each method differently?</span>
+          <span class="arrow">&#9660;</span>
+        </button>
+        <div class="faq-answer">
+          <p>
+            The rule-based method is like us saying "we think a score above 0.65 means 
+            something is off, and here's why." Every threshold and weight was hand-picked 
+            based on our understanding of how shadows should behave. Ideally, it reasons the 
+            way a person would if they were manually checking an image.
+            <br>
+            The ML model takes a step back from that. Instead of us deciding what the 
+            cutoffs should be, the model figures out on its own what patterns in the features 
+            tend to show up in tampered images versus real ones. So it is less "here's 
+            what we think matters" and more "here's what the data actually showed." 
+            <br>
+            The features we chose to extract still reflect our understanding of what 
+            matters in a shadow, and the model learns from the data it was trained on, so 
+            there are still human decisions factored. However, the actual pattern-recognition 
+            and decision-making is left to the model. It can pick up on things we might
+            not have thought to look for.
+          </p>
+        </div>
+      </div>
+
+      <!-- FUTURE WORK CATEGORY -->
+      <div class="faq-item" data-category="future-work">
+        <button class="faq-question">
+          <span>What would be the most impactful improvement to this system?</span>
+          <span class="arrow">&#9660;</span>
+        </button>
+        <div class="faq-answer">
+          <p>
+            Replacing the pixel-based shadow masking step with a computer vision-led
+            shadow segmentation model would likely have the largest effect, since every
+            module depends on mask quality. After that, training on a substantially larger
+            and more diverse dataset of urban imagery would improve generalization
+            significantly.
+          </p>
+        </div>
+      </div>
+
+      <div class="faq-item" data-category="future-work">
+        <button class="faq-question">
+          <span>Could the system ever detect tampering beyond shadow inconsistencies?</span>
+          <span class="arrow">&#9660;</span>
+        </button>
+        <div class="faq-answer">
+          <p>
+            Yes, the current system only looks at shadows, but future work could check 
+            for other signs of tampering.
+            <br>
+            For example, a copied region might have slightly different color tones from 
+            the rest of the image (color temperature inconsistencies), or it might have 
+            a different grain or noise texture because it came from a different camera 
+            (sensor noise pattern analysis). JPEG compression artifacts can also be
+            analyzed.
+            <br>
+            These additional checks would work alongside the shadow analysis rather than 
+            replacing it, though expanding in this direction would shift the focus of
+            the project. 
+          </p>
+        </div>
+      </div>
+
+      <div class="faq-item" data-category="future-work">
+        <button class="faq-question">
+          <span>Could the system pinpoint exactly where in the image the tampering occurred?</span>
+          <span class="arrow">&#9660;</span>
+        </button>
+        <div class="faq-answer">
+          <p>
+            Right now the system gives an overall score and some evidence images, but 
+            it does not highlight exactly which part of the image looks suspicious. A 
+            future version could draw a heatmap directly on the image to show the user
+            where to look, making the results easier to interpret and act on.
+          </p>
+        </div>
+      </div>
+
+      <div class="faq-item" data-category="future-work">
+        <button class="faq-question">
+          <span>Why not use a larger or more complex ML model?</span>
+          <span class="arrow">&#9660;</span>
+        </button>
+        <div class="faq-answer">
+          <p>
+            With the training dataset available for this project, a complex model would
+            overfit. The stacked architecture (three module models each producing one
+            probability, feeding a simple final classifier) is deliberately conservative.
+            A richer dataset would justify a richer model, but scaling the model without
+            scaling the data first would hurt, not help, generalization.
           </p>
         </div>
       </div>
@@ -111,24 +504,45 @@
       navRight.classList.toggle('open');
     });
 
-    /* handling the faq accordion functionality */
-    const faqQuestions = document.querySelectorAll('.faq-question');
+    /* faq category filtering */
+    const categoryBtns = document.querySelectorAll('.faq-category-btn');
+    const faqItems = document.querySelectorAll('.faq-item');
 
-    faqQuestions.forEach((question) => {
-      question.addEventListener('click', () => {
-        const currentItem = question.parentElement;
-        const isActive = currentItem.classList.contains('active');
+    categoryBtns.forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const selected = btn.dataset.category;
 
-        document.querySelectorAll('.faq-item').forEach((item) => {
+        categoryBtns.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+
+        faqItems.forEach(item => {
           item.classList.remove('active');
+          if (item.dataset.category === selected) {
+            item.classList.remove('faq-hidden');
+          } else {
+            item.classList.add('faq-hidden');
+          }
         });
+      });
+    });
 
-        if (!isActive) {
-          currentItem.classList.add('active');
-        }
+    /* apply default category filter on load */
+    faqItems.forEach(item => {
+      if (item.dataset.category !== 'using-the-tool') {
+        item.classList.add('faq-hidden');
+      }
+    });
+
+    /* faq accordion functionality */
+    faqItems.forEach(item => {
+      const question = item.querySelector('.faq-question');
+      question.addEventListener('click', () => {
+        const isActive = item.classList.contains('active');
+        faqItems.forEach(i => i.classList.remove('active'));
+        if (!isActive) item.classList.add('active');
       });
     });
   </script>
-  
+
 </body>
 </html>
