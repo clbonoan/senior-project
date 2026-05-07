@@ -355,14 +355,17 @@ def process_image():
 
     # majority/consensus vote
     if num_ones == 0 and num_zeros == 0:
-        final_vote = None   # no valid scores; all features are uncertain
+        final_vote = None
+        vote_reason = "all_uncertain"   # every module was in the uncertainty zone
     elif num_ones > num_zeros:
         final_vote = 1
+        vote_reason = "majority"
     elif num_zeros > num_ones:
         final_vote = 0
+        vote_reason = "majority"
     else:
-        # require majority to call tampered
-        final_vote = 0  # tie, so assume real
+        final_vote = None   # tied vote -> inconclusive, not defaulting to Real
+        vote_reason = "tie"
     
     # optional: overall continuous score through mean of scores
     valid_scores = [s for s in scores.values() if isinstance(s, (int, float))]
@@ -432,7 +435,8 @@ def process_image():
         rule_based_scores = scores,
         rule_based_votes = votes,
         overall_rule_based_score = overall_rule_based,
-        final_rule_based_vote = final_vote,     # 0=real, 1=tampered, None=unknown
+        final_rule_based_vote = final_vote,     # 0=real, 1=tampered, None=inconclusive
+        final_vote_reason = vote_reason,        # "majority" | "tie" | "all_uncertain"
 
         # stacked ML output
         ml_prediction =  ml_prediction,             # 0=real, 1=tampered, None=error
