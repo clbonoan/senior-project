@@ -287,6 +287,20 @@ h3 {
   cursor: not-allowed;
 }
 
+.btn-spinner {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #ffffff;
+  border-radius: 50%;
+  animation: btn-spin 0.7s linear infinite;
+}
+
+@keyframes btn-spin {
+  to { transform: rotate(360deg); }
+}
+
 .analyzing-section {
   display: flex;
   flex-direction: column;
@@ -388,6 +402,13 @@ h3 {
 .unknown {
   color: #bdc3c7;
   font-weight: bold;
+}
+
+.consensus-note {
+  margin-top: 15px;
+  color: #bdc3c7;
+  font-size: 18px;
+  text-align: center;
 }
 
 .results-container {

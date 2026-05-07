@@ -128,9 +128,11 @@ function setLoading(isLoading) {
     if (isLoading) {
         loadingIndicator.classList.remove("hidden");
         analyzeButton.disabled = true;
+        analyzeButton.innerHTML = '<span class="btn-spinner"></span>';
     } else {
         loadingIndicator.classList.add("hidden");
         analyzeButton.disabled = false;
+        analyzeButton.textContent = "Analyze";
     }
 }
 
@@ -161,6 +163,10 @@ document.getElementById("uploadForm").addEventListener("submit", async (e) => {
         });
 
         // read JSON response
+        const contentType = response.headers.get("content-type") || "";
+        if (!contentType.includes("application/json")) {
+            throw new Error(`Server returned HTTP ${response.status} (not JSON — possible upload size limit exceeded)`);
+        }
         const data = await response.json();
         console.log("Response JSON from server:", data);
 
@@ -188,6 +194,24 @@ document.getElementById("uploadForm").addEventListener("submit", async (e) => {
 });
 
 // display voting result
+function formatConsensus(v, reason) {
+    if (v === 0 || v === "0") return `<span class="real">Real</span>`;
+    if (v === 1 || v === "1") return `<span class="tampered">Tampered</span>`;
+    return `<span class="unknown">Inconclusive</span>`;
+}
+
+function formatConsensusNote(v, reason, meanScore) {
+    if (v === 0 || v === "0" || v === 1 || v === "1") return '';
+
+    if (reason === "tie") {
+        const meanHint = meanScore != null
+            ? `Mean score across all modules: ${meanScore.toFixed(3)} &ndash; ${meanScore > 0.5 ? 'leans suspicious' : 'leans real'}.`
+            : '';
+        return `<p class="consensus-note">${meanHint} Modules split evenly &ndash; manual review recommended.</p>`;
+    }
+    return `<p class="consensus-note">All modules returned borderline scores &ndash; manual review recommended.</p>`;
+}
+
 function formatVote(v) {
     // Normalize "0"/"1" strings to numbers
     if (v === "0") v = 0;
@@ -274,10 +298,11 @@ function renderResults(data) {
 
     let ruleHtml = `
         <h2>Rule-Based Detection Results</h2>
-        <p><b>Final Consensus Decision:</b> ${formatVote(data.final_rule_based_vote)}</p>
+        <p><b>Final Consensus Decision:</b> ${formatConsensus(data.final_rule_based_vote, data.final_vote_reason)}</p>
         <p><b>Tamper Threshold:</b> ${data.threshold}</p>
         <br><hr><br>
         <div class="module-evidence-row">${ruleModuleColsHtml}</div>
+        ${formatConsensusNote(data.final_rule_based_vote, data.final_vote_reason, data.overall_rule_based_score)}
     `;
 
     let finalHtml = "";
