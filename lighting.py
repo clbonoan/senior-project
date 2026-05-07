@@ -696,8 +696,8 @@ def calculate_light_tamper_score(ml_features):
     - large IQR → ratios vary a lot → shadows from different light sources → likely tampered
 
     thresholds:
-    - IQR <= 0.20 → consistent → score 0.0 (not suspicious)
-    - IQR >= 0.80 → very inconsistent → score 1.0 (suspicious)
+    - IQR <= 0.50 → consistent → score 0.0 (not suspicious)
+    - IQR >= 1.50 → very inconsistent → score 1.0 (suspicious)
     '''
     usable = ml_features.get("num_components_usable", 0)
 
@@ -709,11 +709,11 @@ def calculate_light_tamper_score(ml_features):
     # linearly map IQR to score
     # IQR of 0.20 means the middle 50% of shadow ratios differ by a factor of e^0.20 ≈ 1.22
     # IQR of 0.80 means the middle 50% of shadow ratios differ by a factor of e^0.80 ≈ 2.23
-    if iqr <= 0.20:
+    if iqr <= 0.50:
         return 0.0
-    if iqr >= 0.80:
+    if iqr >= 1.50:
         return 1.0
-    return (iqr - 0.20) / (0.80 - 0.20)
+    return (iqr - 0.50) / (1.50 - 0.50)
 
 # ---------------------------------------------------
 # EXECUTE IMAGE ANALYSIS
