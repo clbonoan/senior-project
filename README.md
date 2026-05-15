@@ -1,5 +1,5 @@
 # Detecting Image Tampering Through Shadow Features in Urban Infrastructure
-This is a full-stack web application that detects image manipulation by analyzing shadow inconsistencies in ground-level images using rule-base algorithms and machine learning.
+This is a full-stack web application that detects image manipulation by analyzing shadow inconsistencies in ground-level images through a side-by-side dual analysis pipeline: rule-based path and machine learning path.
 
 Check out our website: https://shadowcheck.dev/
 
