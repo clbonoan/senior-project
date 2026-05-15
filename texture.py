@@ -136,12 +136,6 @@ def lbp_map(gray):
             out[i,j] = lbp_calculated_pixel(gray, i, j)
     return out
 
-# def lbp_hist(patch):
-#     # 8-neighbor lbp -> values 0 to 255
-#     # histogram for local texture pattern distribution
-#     hist, _ = np.histogram(patch.ravel(), bins=256, range=(0,256), density=True)
-#     return hist
-
 def patch_entropy(lbp_u8, mask_u8=None, patch_size=32, stride=None, prefix=None, z_thresh=2.5):
     '''
     PREVIOUS: divide the image into patches and find LBP entropy per patch to see if there were
@@ -371,108 +365,6 @@ def patch_luminance_std(L8_u8, mask_u8=None, patch_size=32, stride=None, prefix=
         f"{prefix}_in_out_gap": abs(in_mean - out_mean),
         f"{prefix}_outlier_frac": outlier_frac,
     }
-
-# DISABLED: clone_detection is not currently used in the pipeline.
-# kept here for reference in case it is re-enabled later.
-# to re-enable: uncomment the call in analyze_texture and add clone_score back to calculate_texture_tamper_score
-def clone_detection(L8_u8, patch_size=40, max_patches=100, similar_thresh=0.95):
-    '''
-    sample patches throughout the image and compare them to each other; if two patches
-    look very similar, possibly copy-pasted (clone stamped).
-    return highest similarity found and how many pairs were similar (suspicious)
-
-    return:
-        clone_feats: dict
-        patches: list of patch metadata for visualization
-    '''
-
-    height, width = L8_u8.shape[:2]
-    patches = []
-
-    # evenly spread patches across image instead of checking every single spot
-    # step is how many pixels to move down before starting next row of patches
-    step_y = max(patch_size, height // int(np.sqrt(max_patches)))   
-    step_x = max(patch_size, width // int(np.sqrt(max_patches)))
-
-    for y in range(0, height - patch_size + 1, step_y):
-        for x in range(0, width - patch_size + 1, step_x):
-            row_start = y 
-            row_end = y + patch_size
-            col_start = x 
-            col_end = x + patch_size
-            patch = L8_u8[row_start:row_end, col_start:col_end].astype(np.float32)
-
-            # shrink the patch from 24x24 to 8x8 -> faster (less) comparisons and less sensitive
-            # average the pixels in each area when shrinking so you don't lose overall pattern
-            small_patch = cv2.resize(patch, (8,8), interpolation=cv2.INTER_AREA).ravel()
-
-            # subtract average brightness so patterns are compared, not brightness
-            # ex: if you have identical patches but one is in shade and one is in light,
-            # they will look different without subtracting avg brightness
-            small_patch = small_patch - small_patch.mean()
-            patch_length = np.linalg.norm(small_patch)
-            if patch_length < 1e-6:     # skip flat/empty patches
-                continue
-
-            # skip patches that are nearly uniform like the sky
-            # variance of the normalized patch values
-            if np.var(small_patch) < 0.01:
-                continue
-            
-            small_patch = small_patch / patch_length
-            #patches.append(small_patch)
-            patches.append({"vec": small_patch, "row": row_start, "col": col_start})
-
-            if len(patches) >= max_patches:
-                break
-        if len(patches) >= max_patches:
-            break
-    
-    num_patches = len(patches)
-    if num_patches < 2:
-        return {
-            "clone_similar_max": 0.0, 
-            "clone_similar_count": 0,
-            "clone_similar_frac": 0.0
-        }, patches
-    
-    # compare every patch against every other patch (brute force)
-    similarities = []
-    suspicious_pairs = 0
-    valid_pairs = 0
-
-    for i in range(num_patches):
-        for j in range(i + 1, num_patches):
-            # dot product of two normalized vectors = cosine similarity (1.0 = identical)
-            # patches must be far enough apart to be suspicious
-            dist = np.sqrt((patches[i]["row"] - patches[j]["row"])**2 + 
-                            (patches[i]["col"] - patches[j]["col"])**2)
-                
-            # compare patches that are far apart, at least 2 patches away (skip nearby patches)
-            if dist <= patch_size * 2:   
-                continue
-
-            valid_pairs += 1
-            similarity = float(np.dot(patches[i]["vec"], patches[j]["vec"]))
-            similarities.append(similarity)
-
-            if similarity >= similar_thresh:
-                suspicious_pairs += 1
-
-    if len(similarities) == 0:
-        return {"clone_similar_max": 0.0, 
-                "clone_similar_count": 0,
-                "clone_similar_frac": 0.0
-            }, patches
-    
-    max_similarity = float(np.array(similarities).max())
-    similar_frac = float(suspicious_pairs / valid_pairs) if valid_pairs > 0 else 0.0
-
-    return {"clone_similar_max": max_similarity, 
-            "clone_similar_count": int(suspicious_pairs),
-            "clone_similar_frac": similar_frac
-        }, patches
-
 
 # ----------------------------------------------------------
 # TEXTURE COMPARISON AND HELPERS FOR TAMPER SCORE

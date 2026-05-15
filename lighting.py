@@ -3,54 +3,10 @@
 
 import cv2
 import numpy as np
-import io, contextlib
 from pathlib import Path
 
 # use same shadow mask as texture.py
 from shadow_mask import final_shadow_mask, srgb_to_linear, remove_small, get_brightness, get_rgb_direction
-
-# def mask_from_texture(img_bgr, suppress_prints=True, **kwargs): 
-#     # call texture.py's make_shadow_mask function to get the shadow mask
-#     if suppress_prints:
-#         _sink = io.StringIO()
-#         with contextlib.redirect_stdout(_sink):
-#             out = final_shadow_mask(img_bgr, **kwargs)
-#     else:
-#         out = final_shadow_mask(img_bgr, **kwargs)
-
-#     if isinstance(out, tuple):
-#         mask = out[0]
-#     else:
-#         mask = out
-#     # make sure mask is applied to original image, not preprocessed one (do not want preprocessed image to be analyzed)
-#     assert mask.shape[:2] == img_bgr.shape[:2], "Mask must align with original image"
-#     return mask
-
-# ----------------------------------------------------------
-# SHADOW MASK HELPERS
-# ----------------------------------------------------------
-def srgb_to_linear(x8):
-    # x in [0,1], sRGB -> linear
-    x = x8.astype(np.float32) / 255.0
-    # Normalize only if we're in 0..255 domain
-    if x.max() > 1.0:
-        x = x / 255.0
-    a = 0.055
-    result = np.where(x <= 0.04045, x/12.92, ((x + a)/(1 + a))**2.4)
-    return result.astype(np.float32)
-
-def remove_small(mask, min_area=800):
-    # remove small noisy regions from the mask
-    num, labels, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
-    keep = np.zeros_like(mask)
-    
-    # background is labeled 0
-    # keep only the large regions
-    for i in range(1, num):
-        # use the total area (# of pixels) of the component
-        if stats[i, cv2.CC_STAT_AREA] >= min_area:
-            keep[labels == i] = 255
-    return keep
 
 # ----------------------------------------------------------
 # CALCULATE SKEW AND KURTOSIS
