@@ -1,6 +1,8 @@
 # Detecting Image Tampering Through Shadow Features in Urban Infrastructure
 This is a full-stack web application that detects image manipulation by analyzing shadow inconsistencies in ground-level images using rule-base algorithms and machine learning.
 
+Check out our website: https://shadowcheck.dev/
+
 **Project Timeline:** Fall 2025 - Spring 2026
 **California State University, Bakersfield - Computer Science Senior Design**
 
